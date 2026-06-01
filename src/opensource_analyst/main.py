@@ -1,0 +1,21 @@
+"""FastAPI 应用入口."""
+
+from fastapi import FastAPI
+
+app = FastAPI(
+    title="OpenSource Analyst",
+    description="基于 LangGraph + Multi-Agent + MCP + RAG 的开源项目分析平台",
+    version="0.1.0",
+)
+
+
+@app.get("/")
+async def root() -> dict[str, str]:
+    """根路径 - 服务状态."""
+    return {"message": "OpenSource Analyst is running!"}
+
+
+@app.get("/health")
+async def health() -> dict[str, str]:
+    """健康检查端点."""
+    return {"status": "ok"}
