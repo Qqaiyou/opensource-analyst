@@ -1,7 +1,7 @@
 [project]
-name = "myproject"
+name = "opensource-analyst"
 version = "0.1.0"
-description = "Add your description here"
+description = "基于 LangGraph + Multi-Agent + MCP + RAG 的开源项目分析平台"
 readme = "README.md"
 requires-python = ">=3.14"
 dependencies = [
