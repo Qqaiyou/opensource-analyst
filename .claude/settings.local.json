@@ -2,7 +2,12 @@
   "permissions": {
     "allow": [
       "Bash(uv --version)",
-      "PowerShell(powershell -ExecutionPolicy Bypass -Command \"irm https://astral.sh/uv/install.ps1 | iex\")"
+      "PowerShell(powershell -ExecutionPolicy Bypass -Command \"irm https://astral.sh/uv/install.ps1 | iex\")",
+      "PowerShell($env:Path = \"C:\\\\Users\\\\Administrator\\\\.local\\\\bin;$env:Path\"; uv --version)",
+      "PowerShell($env:Path = \"C:\\\\Users\\\\Administrator\\\\.local\\\\bin;$env:Path\"; uv pip list --format=columns)",
+      "PowerShell(uv run python -c \"import fastapi, pydantic, langgraph, chromadb, langchain_openai, httpx; print\\('All imports OK'\\)\")",
+      "PowerShell($env:Path = \"C:\\\\Users\\\\Administrator\\\\.local\\\\bin;$env:Path\"; $job = Start-Job -ScriptBlock { param\\($d\\) cd $d; uv run uvicorn src.opensource_analyst.main:app --host 127.0.0.1 --port 8001 2>&1 } -ArgumentList \\(Get-Location\\).Path; Start-Sleep 6; try { $r1 = Invoke-RestMethod -Uri \"http://127.0.0.1:8001/\" -ErrorAction Stop; Write-Host \"GET / → $\\($r1 | ConvertTo-Json -Compress\\)\" } catch { Write-Host \"GET / FAILED: $_\" }; try { $r2 = Invoke-RestMethod -Uri \"http://127.0.0.1:8001/health\" -ErrorAction Stop; Write-Host \"GET /health → $\\($r2 | ConvertTo-Json -Compress\\)\" } catch { Write-Host \"GET /health FAILED: $_\" }; try { Invoke-RestMethod -Uri \"http://127.0.0.1:8001/docs\" -ErrorAction Stop; Write-Host \"GET /docs → Swagger OK\" } catch { Write-Host \"GET /docs FAILED: $_\" }; Stop-Job $job -ErrorAction SilentlyContinue; Remove-Job $job -ErrorAction SilentlyContinue)",
+      "PowerShell($env:Path = \"C:\\\\Users\\\\Administrator\\\\.local\\\\bin;$env:Path\"; uv run python tests/check_langgraph.py)"
     ]
   }
 }
