@@ -1,7 +1,7 @@
 # OpenSource Analyst - 项目进度跟踪
 
 > 最后更新：2026-06-02
-> 当前阶段：Milestone 1 ✅ 已完成 | 下一阶段：Milestone 2
+> 当前阶段：Milestone 2 ✅ 已完成 | 下一阶段：Milestone 3
 
 ---
 
@@ -21,7 +21,7 @@
 |------|------|------|----------|----------|
 | M0 | 环境搭建 | ✅ 已完成 | 2026-06-01 | `45539df` |
 | M1 | 项目设计 | ✅ 已完成 | 2026-06-02 | - |
-| M2 | GitHub 仓库读取 | ⏳ 待开始 | - | - |
+| M2 | GitHub 仓库读取 | ✅ 已完成 | 2026-06-02 | - |
 | M3 | 单 Agent 分析 | ⏳ 待开始 | - | - |
 | M4 | Repository RAG | ⏳ 待开始 | - | - |
 | M5 | FastAPI 接口 | ⏳ 待开始 | - | - |
@@ -128,7 +128,38 @@ GET /docs → Swagger UI 自动生成
 
 ---
 
-## 五、快速启动命令
+## 五、Milestone 2 完成详情
+
+### 5.1 产出文件
+
+| 文件 | 路径 | 内容 |
+|------|------|------|
+| GitHubClient | `src/opensource_analyst/github/client.py` | 异步 HTTP 客户端 + URL 解析 + 3 种异常类 + `.env` 自动加载 |
+| ReadmeFetcher | `src/opensource_analyst/github/readme.py` | README 获取 + base64 解码 |
+| RepoParser | `src/opensource_analyst/github/parser.py` | 文件树获取（自适应默认分支） + 语言统计 |
+| RepoInfo | `src/opensource_analyst/models/repo.py` | Pydantic 数据模型 |
+| 测试 | `tests/test_github.py` | 9 个测试用例（4 单元 + 5 集成）|
+| 环境变量模板 | `.env.example` | DEEPSEEK_API_KEY + GITHUB_TOKEN |
+| 环境变量 | `.env` | 真实 Key（已 gitignore）|
+
+### 5.2 测试结果
+
+```
+9 passed in 9.90s
+  - 4 单元测试：URL 解析（含边界情况：尾部斜杠、非 GitHub 域名、缺少 repo）
+  - 5 集成测试：对 TinyDB 真实请求（README / 文件树 / 语言 / 404 异常 / 全链路）
+```
+
+### 5.3 技术要点
+
+- GitHub API 自适应默认分支（TinyDB 用 `master`，LangGraph 用 `main`）
+- `.env` 自动加载 + `.gitignore` 防护
+- 异步全链路：httpx.AsyncClient + async with 上下文管理器
+- 异常分层：`GitHubAPIError` → `RepoNotFoundError` / `RateLimitError`
+
+---
+
+## 六、快速启动命令
 
 ```bash
 # 进入项目目录
@@ -149,7 +180,7 @@ uv add <package-name>
 
 ---
 
-## 六、开发规范速查
+## 七、开发规范速查
 
 - **设计优先**：每个功能先输出设计文档，确认后再编码
 - **类型完整**：所有函数使用类型注解
