@@ -1,7 +1,7 @@
 # OpenSource Analyst - 项目进度跟踪
 
 > 最后更新：2026-06-02
-> 当前阶段：Milestone 3 ✅ 已完成 | 下一阶段：Milestone 4
+> 当前阶段：Milestone 4 ✅ 已完成 | 下一阶段：Milestone 5
 
 ---
 
@@ -23,7 +23,7 @@
 | M1 | 项目设计 | ✅ 已完成 | 2026-06-02 | - |
 | M2 | GitHub 仓库读取 | ✅ 已完成 | 2026-06-02 | - |
 | M3 | 单 Agent 分析 | ✅ 已完成 | 2026-06-02 | - |
-| M4 | Repository RAG | ⏳ 待开始 | - | - |
+| M4 | Repository RAG | ✅ 已完成 | 2026-06-02 | - |
 | M5 | FastAPI 接口 | ⏳ 待开始 | - | - |
 | M6 | LangGraph 工作流 | ⏳ 待开始 | - | - |
 | M7 | Dependency Agent | ⏳ 待开始 | - | - |
@@ -206,7 +206,38 @@ GET /docs → Swagger UI 自动生成
 
 ---
 
-## 七、快速启动命令
+## 七、Milestone 4 完成详情
+
+### 7.1 产出文件
+
+| 文件 | 路径 | 内容 |
+|------|------|------|
+| DashScopeEmbeddings | `src/opensource_analyst/vectorstore/chroma.py` | 百炼 Embedding 适配器 + VectorStore（ChromaDB 封装） |
+| CodeIndexer | `src/opensource_analyst/rag/indexer.py` | 代码文件过滤 + GitHub raw 下载 + 分块 + 批量索引 |
+| CodeRetriever | `src/opensource_analyst/rag/retriever.py` | 语义搜索 + LLM 上下文拼接 |
+| 测试 | `tests/test_rag.py` | 6 个测试（3 单元 + 3 集成） |
+
+### 7.2 测试结果
+
+```
+M4 新增：6/6 PASSED
+  - 3 单元测试：文件过滤逻辑（.py 保留 / docs 排除 / .rst 排除）
+  - 1 单元测试：百炼 text-embedding-v3 返回 1024 维向量
+  - 2 集成测试：TinyDB 索引 → 搜索 → 上下文拼接
+全项目：18/19 PASSED（1 个 GitHub API 瞬时 SSL 错误，与 M4 无关）
+```
+
+### 7.3 技术要点
+
+- **Embedding 模型**：阿里百炼 `text-embedding-v3`，1024 维，通过 OpenAI Compatible 接口接入
+- **自建适配器** `DashScopeEmbeddings`：实现了 LangChain `Embeddings` 接口，逐条请求 + 3 次重试解决网络波动
+- **分块策略**：`RecursiveCharacterTextSplitter`，chunk_size=1000, overlap=200
+- **文件过滤**：排除 tests/、docs/、node_modules/、非代码扩展名、>500KB 文件、上限 200 文件
+- **GitHub 下载**：并发 async + 自适应 master/main 分支
+
+---
+
+## 八、快速启动命令
 
 ```bash
 # 进入项目目录
@@ -227,7 +258,7 @@ uv add <package-name>
 
 ---
 
-## 八、开发规范速查
+## 九、开发规范速查
 
 - **设计优先**：每个功能先输出设计文档，确认后再编码
 - **类型完整**：所有函数使用类型注解
