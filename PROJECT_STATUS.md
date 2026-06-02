@@ -1,7 +1,7 @@
 # OpenSource Analyst - 项目进度跟踪
 
-> 最后更新：2026-06-01
-> 当前阶段：Milestone 0 ✅ 已完成 | 下一阶段：Milestone 1
+> 最后更新：2026-06-02
+> 当前阶段：Milestone 1 ✅ 已完成 | 下一阶段：Milestone 2
 
 ---
 
@@ -20,7 +20,7 @@
 | 阶段 | 名称 | 状态 | 完成日期 | 提交哈希 |
 |------|------|------|----------|----------|
 | M0 | 环境搭建 | ✅ 已完成 | 2026-06-01 | `45539df` |
-| M1 | 项目设计 | ⏳ 待开始 | - | - |
+| M1 | 项目设计 | ✅ 已完成 | 2026-06-02 | - |
 | M2 | GitHub 仓库读取 | ⏳ 待开始 | - | - |
 | M3 | 单 Agent 分析 | ⏳ 待开始 | - | - |
 | M4 | Repository RAG | ⏳ 待开始 | - | - |
@@ -102,31 +102,29 @@ GET /docs → Swagger UI 自动生成
 
 ---
 
-## 四、Milestone 1 准备事项
+## 四、Milestone 1 完成详情
 
-### 4.1 待产出文档
+### 4.1 产出文档
 
-- `docs/PRD.md` — 产品需求文档
-  - 目标用户是谁
-  - 解决什么问题
-  - 输入是什么
-  - 输出是什么
+| 文档 | 路径 | 内容 |
+|------|------|------|
+| PRD.md | `docs/PRD.md` | 产品需求文档 — 5 种用户画像、功能边界、输入输出定义、验收标准 |
+| ARCHITECTURE.md | `docs/ARCHITECTURE.md` | 架构设计文档 — 5 层架构图、Agent 关系、LangGraph 工作流、RAG 流水线、MCP 集成、API 设计、数据流全链路 |
+| ROADMAP.md | `docs/ROADMAP.md` | 开发路线图 — 13 个里程碑总览、依赖关系图、分阶段计划、技术选型、风险矩阵、验收标准 |
 
-- `docs/ARCHITECTURE.md` — 架构设计文档
-  - 整体架构图
-  - Agent 关系图
-  - 数据流图
+### 4.2 关键设计决策
 
-- `docs/ROADMAP.md` — 开发路线图
-  - 各阶段详细计划
-  - 技术选型说明
+- **LLM 提供商**：OpenAI Compatible API，通过 `base_url` 切换（ChatOpenAI）
+- **向量数据库**：ChromaDB（MVP），后续可升级 PostgreSQL + pgvector
+- **Agent 架构**：Coordinator + 4 Expert Agent（Repo / Dependency / Architecture / Learning）
+- **工作流引擎**：LangGraph StateGraph，M6 顺序执行，M10 升级为动态并行路由
+- **异步方案**：MVP 用 asyncio + 内存队列，后续可升级 Celery/Redis
 
-### 4.2 需要确认的问题
+### 4.3 已确认事项（M2 就绪）
 
-- [ ] LLM 提供商选择（OpenAI / Claude / 本地模型）
-- [ ] 向量数据库最终选型（ChromaDB / PostgreSQL + pgvector）
-- [ ] 部署方式（本地 / Docker / 云端）
-- [ ] GitHub API 认证方式（Token / OAuth）
+- [x] **LLM API Key**：DeepSeek API Key，环境变量 `DEEPSEEK_API_KEY`，通过 `ChatOpenAI(base_url="https://api.deepseek.com/v1")` 兼容接入
+- [x] **GitHub Token**：用 `gh` CLI 获取（`gh auth token`），或去 GitHub Settings → Developer settings → Personal access tokens 查看
+- [x] **M2 测试目标**：[TinyDB](https://github.com/msiemens/tinydb)（Python 轻量数据库）
 
 ---
 
