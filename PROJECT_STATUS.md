@@ -1,7 +1,7 @@
 # OpenSource Analyst - 项目进度跟踪
 
 > 最后更新：2026-06-02
-> 当前阶段：Milestone 2 ✅ 已完成 | 下一阶段：Milestone 3
+> 当前阶段：Milestone 3 ✅ 已完成 | 下一阶段：Milestone 4
 
 ---
 
@@ -22,7 +22,7 @@
 | M0 | 环境搭建 | ✅ 已完成 | 2026-06-01 | `45539df` |
 | M1 | 项目设计 | ✅ 已完成 | 2026-06-02 | - |
 | M2 | GitHub 仓库读取 | ✅ 已完成 | 2026-06-02 | - |
-| M3 | 单 Agent 分析 | ⏳ 待开始 | - | - |
+| M3 | 单 Agent 分析 | ✅ 已完成 | 2026-06-02 | - |
 | M4 | Repository RAG | ⏳ 待开始 | - | - |
 | M5 | FastAPI 接口 | ⏳ 待开始 | - | - |
 | M6 | LangGraph 工作流 | ⏳ 待开始 | - | - |
@@ -159,7 +159,54 @@ GET /docs → Swagger UI 自动生成
 
 ---
 
-## 六、快速启动命令
+## 六、Milestone 3 完成详情
+
+### 6.1 产出文件
+
+| 文件 | 路径 | 内容 |
+|------|------|------|
+| BaseAgent | `src/opensource_analyst/agents/base.py` | LLM 调用基类 + ChatOpenAI 封装 + JSON 解析 + Analyzer |
+| OverviewPrompt | `src/opensource_analyst/prompts/overview.py` | 项目概览 + 技术栈分析 prompt 模板 |
+| AnalysisResult | `src/opensource_analyst/models/analysis.py` | 输出模型（AnalysisResult / ProjectOverview / TechStack / Dependency）|
+| 测试 | `tests/test_agent.py` | 4 个集成测试（类型 / 概览 / 技术栈 / 依赖）|
+
+### 6.2 测试结果
+
+```
+13 passed in 22.92s
+  M2: 9 tests (4 unit + 5 integration)
+  M3: 4 tests (4 integration — 真实调用 DeepSeek API)
+```
+
+### 6.3 真实分析输出（TinyDB）
+
+```json
+{
+  "overview": {
+    "name": "TinyDB",
+    "description": "轻量级纯 Python 文档数据库，无外部依赖...",
+    "use_cases": ["小型应用本地存储", "原型开发", "嵌入式数据管理"],
+    "license": "MIT"
+  },
+  "tech_stack": {
+    "languages": {"Python": "约 98.6%", "Makefile": "约 1.4%"},
+    "frameworks": [],
+    "key_dependencies": []
+  }
+}
+```
+
+### 6.4 技术要点
+
+- DeepSeek API 通过 `ChatOpenAI(base_url="https://api.deepseek.com/v1")` 兼容接入
+- `DEEPSEEK_API_KEY` 从 `.env` 自动加载（`python-dotenv`）
+- `_invoke_json()` 内置容错：自动去掉 markdown 代码块、提取 JSON 边界
+- Prompt 中 JSON 示例花括号用 `{{ }}` 转义，避免与 `str.format()` 冲突
+- 低温度（0.3）保证输出稳定
+
+---
+
+## 七、快速启动命令
 
 ```bash
 # 进入项目目录
@@ -180,7 +227,7 @@ uv add <package-name>
 
 ---
 
-## 七、开发规范速查
+## 八、开发规范速查
 
 - **设计优先**：每个功能先输出设计文档，确认后再编码
 - **类型完整**：所有函数使用类型注解
