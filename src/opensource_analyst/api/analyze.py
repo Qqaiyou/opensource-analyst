@@ -1,18 +1,14 @@
 """POST /analyze — 发起分析任务."""
 
-import asyncio
-import os
 from datetime import datetime, timezone
 from uuid import uuid4
 
 from fastapi import APIRouter, BackgroundTasks, HTTPException
 
 from opensource_analyst.models.task import AnalyzeRequest, TaskStatus, TaskResult
+from opensource_analyst.models.analysis import AnalysisResult
 from opensource_analyst.github.client import GitHubClient
-from opensource_analyst.github.readme import ReadmeFetcher
-from opensource_analyst.github.parser import RepoParser
-from opensource_analyst.models.repo import RepoInfo
-from opensource_analyst.agents.base import Analyzer
+from opensource_analyst.graph.workflow import build_workflow
 
 router = APIRouter()
 
@@ -49,24 +45,20 @@ async def start_analysis(req: AnalyzeRequest, bg: BackgroundTasks) -> TaskStatus
 
 
 async def _run_analysis(task_id: str, repo_url: str) -> None:
-    """后台执行完整的分析流水线。"""
+    """通过 LangGraph 工作流执行分析流水线。"""
     try:
         _store[task_id]["status"] = "running"
 
-        owner, repo = GitHubClient.parse_url(repo_url)
+        app = build_workflow()
+        state = await app.ainvoke({"repo_url": repo_url})
 
-        async with GitHubClient() as gh:
-            readme = await ReadmeFetcher(gh).fetch_readme(owner, repo)
-            files = await RepoParser(gh).fetch_file_tree(owner, repo)
-            langs = await RepoParser(gh).fetch_languages(owner, repo)
+        if state.get("error"):
+            raise RuntimeError(state["error"])
 
-        repo_info = RepoInfo(
-            owner=owner, repo=repo,
-            readme=readme, file_tree=files, languages=langs,
+        result = AnalysisResult(
+            overview=state["overview"],
+            tech_stack=state["tech_stack"],
         )
-
-        analyzer = Analyzer()
-        result = analyzer.analyze(repo_info)
 
         _store[task_id]["status"] = "completed"
         _store[task_id]["result"] = result.model_dump()

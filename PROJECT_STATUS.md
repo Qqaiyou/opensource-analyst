@@ -1,7 +1,7 @@
 # OpenSource Analyst - 项目进度跟踪
 
 > 最后更新：2026-06-03
-> 当前阶段：Milestone 5 ✅ 已完成 | 下一阶段：Milestone 6
+> 当前阶段：Milestone 6 ✅ 已完成 | 下一阶段：Milestone 7
 
 ---
 
@@ -25,7 +25,7 @@
 | M3 | 单 Agent 分析 | ✅ 已完成 | 2026-06-02 | - |
 | M4 | Repository RAG | ✅ 已完成 | 2026-06-02 | - |
 | M5 | FastAPI 接口 | ✅ 已完成 | 2026-06-02 | - |
-| M6 | LangGraph 工作流 | ⏳ 待开始 | - | - |
+| M6 | LangGraph 工作流 | ✅ 已完成 | 2026-06-03 | - |
 | M7 | Dependency Agent | ⏳ 待开始 | - | - |
 | M8 | Architecture Agent | ⏳ 待开始 | - | - |
 | M9 | Learning Agent | ⏳ 待开始 | - | - |
@@ -278,7 +278,49 @@ M4 新增：6/6 PASSED
 
 ---
 
-## 九、快速启动命令
+## 九、Milestone 6 完成详情
+
+### 9.1 产出文件
+
+| 文件 | 路径 | 内容 |
+|------|------|------|
+| GraphState | `src/opensource_analyst/graph/state.py` | TypedDict 共享状态定义（7 字段，NotRequired 可选字段） |
+| Nodes | `src/opensource_analyst/graph/nodes.py` | 4 个节点函数（load_repo / analyze / architecture / learning） |
+| Workflow | `src/opensource_analyst/graph/workflow.py` | build_workflow() 工厂函数 + StateGraph 编译 |
+| API 改造 | `src/opensource_analyst/api/analyze.py` | _run_analysis 改为 LangGraph 工作流调用 |
+| 测试 | `tests/test_graph.py` | 7 个测试（6 单元 + 1 集成） |
+
+### 9.2 测试结果
+
+```
+31/31 PASSED (169.73s)
+  M2: 9 tests (GitHub 客户端)
+  M3: 4 tests (Agent 分析)
+  M4: 6 tests (RAG 索引检索)
+  M5: 5 tests (API 接口)
+  M6: 7 tests (LangGraph 工作流 — 新增)
+```
+
+### 9.3 工作流结构
+
+```
+START → load_repo → analyze → architecture → learning → END
+          │            │           │             │
+     GitHub API     LLM 调用    占位 (M8)    占位 (M9)
+```
+
+### 9.4 技术要点
+
+- **GraphState**：使用 `TypedDict` + `NotRequired`，除 `repo_url` 外所有字段默认不存在
+- **节点签名**：`(state: GraphState, config: RunnableConfig | None = None) -> dict`
+- **容错设计**：每个节点 try/except，异常写入 `state["error"]`，下游节点检查跳过
+- **API 集成**：`_run_analysis()` 改为调用 `build_workflow().ainvoke({"repo_url": ...})`
+- **占位节点**：architecture_node 和 learning_node 返回 `None`，M8/M9 替换内部逻辑
+- **RunnableConfig**：从 `langgraph.types` 导入，确保类型兼容 LangGraph 1.2.x
+
+---
+
+## 十、快速启动命令
 
 ```bash
 # 进入项目目录
@@ -299,7 +341,7 @@ uv add <package-name>
 
 ---
 
-## 十、开发规范速查
+## 十一、开发规范速查
 
 - **设计优先**：每个功能先输出设计文档，确认后再编码
 - **类型完整**：所有函数使用类型注解
