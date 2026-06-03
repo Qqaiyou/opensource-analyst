@@ -1,7 +1,7 @@
 # OpenSource Analyst - 项目进度跟踪
 
 > 最后更新：2026-06-02
-> 当前阶段：Milestone 4 ✅ 已完成 | 下一阶段：Milestone 5
+> 当前阶段：Milestone 5 ✅ 已完成 | 下一阶段：Milestone 6
 
 ---
 
@@ -24,7 +24,7 @@
 | M2 | GitHub 仓库读取 | ✅ 已完成 | 2026-06-02 | - |
 | M3 | 单 Agent 分析 | ✅ 已完成 | 2026-06-02 | - |
 | M4 | Repository RAG | ✅ 已完成 | 2026-06-02 | - |
-| M5 | FastAPI 接口 | ⏳ 待开始 | - | - |
+| M5 | FastAPI 接口 | ✅ 已完成 | 2026-06-02 | - |
 | M6 | LangGraph 工作流 | ⏳ 待开始 | - | - |
 | M7 | Dependency Agent | ⏳ 待开始 | - | - |
 | M8 | Architecture Agent | ⏳ 待开始 | - | - |
@@ -237,7 +237,46 @@ M4 新增：6/6 PASSED
 
 ---
 
-## 八、快速启动命令
+## 八、Milestone 5 完成详情
+
+### 8.1 产出文件
+
+| 文件 | 路径 | 内容 |
+|------|------|------|
+| AnalyzeRequest/TaskStatus/TaskResult | `src/opensource_analyst/models/task.py` | 请求/响应 Pydantic 模型 |
+| POST /analyze | `src/opensource_analyst/api/analyze.py` | 发起分析 + BackgroundTasks 后台执行 |
+| GET /task/{id} | `src/opensource_analyst/api/task.py` | 状态查询 + 结果获取 |
+| main.py 修改 | `src/opensource_analyst/main.py` | 注册 analyze/task 两个 router |
+| API 测试 | `tests/test_api.py` | 5 个测试（含端到端全链路）|
+
+### 8.2 测试结果
+
+```
+24/24 PASSED in 5min 23s
+  M2: 9 tests (GitHub 客户端)
+  M3: 4 tests (Agent 分析)
+  M4: 6 tests (RAG 索引检索)
+  M5: 5 tests (API 接口)
+```
+
+### 8.3 API 端点
+
+| 方法 | 路径 | 用途 | 状态码 |
+|------|------|------|--------|
+| POST | `/analyze` | 发起分析 | 202 Accepted |
+| GET | `/task/{id}` | 查询状态 | 200 / 404 |
+| GET | `/task/{id}/result` | 获取结果 | 200 / 404 / 409 |
+
+### 8.4 技术要点
+
+- **异步任务**：FastAPI BackgroundTasks，请求立即返回 task_id，后台执行 M2+M3 全链路
+- **内存存储**：MVP 用 `dict[str, dict]`，后续可替换 Redis
+- **URL 校验**：复用 M2 的 `GitHubClient.parse_url()`，非 GitHub 域名直接 400
+- **轮询模式**：用户 POST /analyze → 拿 task_id → 轮询 GET /task/{id} → GET /task/{id}/result
+
+---
+
+## 九、快速启动命令
 
 ```bash
 # 进入项目目录
@@ -258,7 +297,7 @@ uv add <package-name>
 
 ---
 
-## 九、开发规范速查
+## 十、开发规范速查
 
 - **设计优先**：每个功能先输出设计文档，确认后再编码
 - **类型完整**：所有函数使用类型注解

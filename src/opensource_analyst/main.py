@@ -2,11 +2,17 @@
 
 from fastapi import FastAPI
 
+from opensource_analyst.api.analyze import router as analyze_router
+from opensource_analyst.api.task import router as task_router
+
 app = FastAPI(
     title="OpenSource Analyst",
     description="基于 LangGraph + Multi-Agent + MCP + RAG 的开源项目分析平台",
     version="0.1.0",
 )
+
+app.include_router(analyze_router)
+app.include_router(task_router)
 
 
 @app.get("/")
