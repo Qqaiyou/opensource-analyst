@@ -57,6 +57,7 @@ class GitHubClient:
             base_url=self.BASE_URL,
             headers=headers,
             timeout=30.0,
+            transport=httpx.AsyncHTTPTransport(trust_env=False),
         )
 
     @staticmethod
@@ -80,12 +81,12 @@ class GitHubClient:
             repo = repo[:-4]
         return parts[0], repo
 
-    async def _request(self, path: str) -> dict:
+    async def _request(self, path: str, owner: str = "unknown", repo: str = "unknown") -> dict:
         """发送 GET 请求到 GitHub API，处理错误。"""
         response = await self._client.get(path)
 
         if response.status_code == 404:
-            raise RepoNotFoundError("unknown", "unknown")
+            raise RepoNotFoundError(owner, repo)
         if response.status_code == 403 and "rate limit" in response.text.lower():
             raise RateLimitError()
         if response.status_code >= 400:

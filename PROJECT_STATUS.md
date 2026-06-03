@@ -1,6 +1,6 @@
 # OpenSource Analyst - 项目进度跟踪
 
-> 最后更新：2026-06-02
+> 最后更新：2026-06-03
 > 当前阶段：Milestone 5 ✅ 已完成 | 下一阶段：Milestone 6
 
 ---
@@ -252,7 +252,7 @@ M4 新增：6/6 PASSED
 ### 8.2 测试结果
 
 ```
-24/24 PASSED in 5min 23s
+24/24 PASSED
   M2: 9 tests (GitHub 客户端)
   M3: 4 tests (Agent 分析)
   M4: 6 tests (RAG 索引检索)
@@ -273,6 +273,8 @@ M4 新增：6/6 PASSED
 - **内存存储**：MVP 用 `dict[str, dict]`，后续可替换 Redis
 - **URL 校验**：复用 M2 的 `GitHubClient.parse_url()`，非 GitHub 域名直接 400
 - **轮询模式**：用户 POST /analyze → 拿 task_id → 轮询 GET /task/{id} → GET /task/{id}/result
+- **代理修复**：`GitHubClient` 添加 `trust_env=False`，解决 Windows 系统代理导致 httpx 连接失败的问题
+- **导入修复**：`parser.py` / `readme.py` / 测试文件 中的 `from src.opensource_analyst.*` 改为 `from opensource_analyst.*` 相对导入
 
 ---
 

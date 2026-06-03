@@ -96,7 +96,7 @@ Implementation Second
 
 不要直接输出代码。
 
-必须按照以下顺序：
+必须按照以下顺序，每一步得用户确认后再继续下一步：
 
 ### Step 1
 
@@ -171,6 +171,12 @@ Implementation Second
 ```
 
 ------
+
+### Step 6
+
+更新 PROJECT_STATUS.md 并提交 git
+
+---------
 
 ## Development Stages
 

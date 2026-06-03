@@ -1,7 +1,7 @@
 """README 获取与解析."""
 
 import base64
-from src.opensource_analyst.github.client import GitHubClient, RepoNotFoundError
+from opensource_analyst.github.client import GitHubClient
 
 
 class ReadmeFetcher:
@@ -29,10 +29,10 @@ class ReadmeFetcher:
         Raises:
             RepoNotFoundError: 仓库不存在或 README 不存在
         """
-        try:
-            data = await self._client._request(f"/repos/{owner}/{repo}/readme")
-        except RepoNotFoundError:
-            raise RepoNotFoundError(owner, repo)
+        data = await self._client._request(
+            f"/repos/{owner}/{repo}/readme",
+            owner=owner, repo=repo,
+        )
 
         # GitHub README API 返回 base64 编码的内容
         content_b64: str = data.get("content", "")

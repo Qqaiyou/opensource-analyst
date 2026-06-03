@@ -1,14 +1,14 @@
 """GitHub 模块测试 — 使用 TinyDB 作为真实测试目标."""
 
 import pytest
-from src.opensource_analyst.github.client import (
+from opensource_analyst.github.client import (
     GitHubClient,
     GitHubAPIError,
     RepoNotFoundError,
     RateLimitError,
 )
-from src.opensource_analyst.github.readme import ReadmeFetcher
-from src.opensource_analyst.github.parser import RepoParser
+from opensource_analyst.github.readme import ReadmeFetcher
+from opensource_analyst.github.parser import RepoParser
 
 TARGET = ("msiemens", "tinydb")
 
@@ -85,7 +85,7 @@ async def test_repo_not_found() -> None:
 @pytest.mark.anyio
 async def test_full_flow() -> None:
     """端到端：从 URL 到 RepoInfo 的完整流程。"""
-    from src.opensource_analyst.models.repo import RepoInfo
+    from opensource_analyst.models.repo import RepoInfo
 
     owner, repo = GitHubClient.parse_url("https://github.com/msiemens/tinydb")
 

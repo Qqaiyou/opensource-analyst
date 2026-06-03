@@ -201,7 +201,7 @@ main
   5. 打 tag: v0.X.0
 ```
 
-提交信息格式：`<type>: <description>`，如 `feat: add GitHub client with readme fetcher`。
+提交信息格式：`<type>: <中文描述>`，如 `feat: 新增 GitHub 客户端，支持抓取 README`。
 
 ---
 
