@@ -1,6 +1,6 @@
 # OpenSource Analyst - 项目进度跟踪
 
-> 最后更新：2026-06-03
+> 最后更新：2026-06-04
 > 当前阶段：Milestone 6 ✅ 已完成 | 下一阶段：Milestone 7
 
 ---
@@ -337,6 +337,16 @@ load_repo → index_code → retrieve_context → analyze → architecture → l
 - **对话接口**：POST /chat 接收自然语言问题，用已建索引做 RAG 检索 → DeepSeek 回答，返回答案+代码引用来源
 - **防御性编程**：每个节点检查 repo_info 是否缺失，analyze_node 有缺失防护
 - **异步/同步混编**：index_code_node 为 async（下载+Embedding 为 IO 密集），retrieve_context_node 为 sync
+- **代码审查修复**：`build_workflow()` 返回类型修正为 `CompiledStateGraph`；`BaseAgent.invoke()` 替代 `_invoke()`；chat.py LLM 调用新增 502 错误处理；indexer.py 删除死代码
+
+### 9.6 Git 提交记录
+
+```
+37d6324 fix: 代码审查修复 — 返回值类型、错误处理、死代码清理
+7b4f65e feat: 将 Embedding 模型从 text-embedding-v3 升级为 text-embedding-v4
+760c64c feat: 完善 Milestone 6 — RAG 接入工作流 + 对话接口 + 错误路由
+3b58389 feat: 完成 Milestone 6 — LangGraph 工作流
+```
 
 ---
 
