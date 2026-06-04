@@ -85,7 +85,7 @@ class TestEmbedding:
             pass
 
     def test_embedding_returns_1024_dim(self) -> None:
-        """验证百炼 text-embedding-v3 返回 1024 维向量。"""
+        """验证百炼 text-embedding-v4 返回 1024 维向量。"""
         from opensource_analyst.vectorstore.chroma import DashScopeEmbeddings
 
         emb = DashScopeEmbeddings(api_key=os.getenv("DASH_SCOPE_API_KEY") or "")

@@ -12,7 +12,7 @@ from langchain_core.embeddings import Embeddings
 class DashScopeEmbeddings(Embeddings):
     """阿里百炼 Embedding 适配器 — 兼容 OpenAI 接口但适配百炼参数格式."""
 
-    def __init__(self, api_key: str, model: str = "text-embedding-v3") -> None:
+    def __init__(self, api_key: str, model: str = "text-embedding-v4") -> None:
         self.api_key = api_key
         self.model = model
 
