@@ -64,11 +64,14 @@ class BaseAgent:
 class Analyzer(BaseAgent):
     """单 Agent 分析器 — 基于 RepoInfo 生成项目概览和技术栈分析."""
 
-    def analyze(self, repo_info: RepoInfo) -> AnalysisResult:
+    def analyze(
+        self, repo_info: RepoInfo, rag_context: str | None = None
+    ) -> AnalysisResult:
         """分析仓库，返回结构化结果。
 
         Args:
             repo_info: M2 产出的仓库数据（README + 文件树 + 语言统计）
+            rag_context: 可选的 RAG 检索代码片段上下文，注入 prompt 增强分析
 
         Returns:
             AnalysisResult: 包含概览和技术栈的完整分析
@@ -81,6 +84,12 @@ class Analyzer(BaseAgent):
             file_tree=file_tree_str,
             languages=languages_str,
         )
+
+        if rag_context:
+            prompt += (
+                "\n\n## 代码片段（RAG 检索结果）\n"
+                "以下是仓库中最相关的代码片段，请参考这些代码完善你的分析：\n\n"
+            ) + rag_context
 
         data = self._invoke_json(prompt)
         return AnalysisResult(**data)

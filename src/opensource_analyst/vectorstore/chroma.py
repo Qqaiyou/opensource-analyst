@@ -112,6 +112,14 @@ class VectorStore:
             })
         return results
 
+    def count(self) -> int:
+        """返回 Collection 内已存储的文档数。"""
+        try:
+            collection = self._client.get_collection(self._collection_name)
+            return collection.count()
+        except Exception:
+            return 0
+
     def delete_collection(self) -> None:
         """删除当前 Collection（重新索引时使用）。"""
         self._client.delete_collection(self._collection_name)

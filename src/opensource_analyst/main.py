@@ -4,6 +4,7 @@ from fastapi import FastAPI
 
 from opensource_analyst.api.analyze import router as analyze_router
 from opensource_analyst.api.task import router as task_router
+from opensource_analyst.api.chat import router as chat_router
 
 app = FastAPI(
     title="OpenSource Analyst",
@@ -13,6 +14,7 @@ app = FastAPI(
 
 app.include_router(analyze_router)
 app.include_router(task_router)
+app.include_router(chat_router)
 
 
 @app.get("/")

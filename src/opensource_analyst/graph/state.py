@@ -16,6 +16,8 @@ class GraphState(TypedDict):
 
     repo_url: str
     repo_info: NotRequired[RepoInfo | None]
+    code_indexed: NotRequired[int | None]
+    rag_context: NotRequired[str | None]
     overview: NotRequired[ProjectOverview | None]
     tech_stack: NotRequired[TechStack | None]
     architecture: NotRequired[Any]

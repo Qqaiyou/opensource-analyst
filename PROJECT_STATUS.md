@@ -284,39 +284,59 @@ M4 新增：6/6 PASSED
 
 | 文件 | 路径 | 内容 |
 |------|------|------|
-| GraphState | `src/opensource_analyst/graph/state.py` | TypedDict 共享状态定义（7 字段，NotRequired 可选字段） |
-| Nodes | `src/opensource_analyst/graph/nodes.py` | 4 个节点函数（load_repo / analyze / architecture / learning） |
-| Workflow | `src/opensource_analyst/graph/workflow.py` | build_workflow() 工厂函数 + StateGraph 编译 |
+| GraphState | `src/opensource_analyst/graph/state.py` | TypedDict 共享状态（9 字段：新增 code_indexed、rag_context） |
+| Nodes | `src/opensource_analyst/graph/nodes.py` | 6 个节点（load_repo / index_code / retrieve_context / analyze / architecture / learning） |
+| Workflow | `src/opensource_analyst/graph/workflow.py` | build_workflow() + export_workflow_mermaid() + 条件边错误短路 |
 | API 改造 | `src/opensource_analyst/api/analyze.py` | _run_analysis 改为 LangGraph 工作流调用 |
-| 测试 | `tests/test_graph.py` | 7 个测试（6 单元 + 1 集成） |
+| Analyzer 增强 | `src/opensource_analyst/agents/base.py` | analyze() 新增 rag_context 可选参数，注入代码上下文 |
+| VectorStore | `src/opensource_analyst/vectorstore/chroma.py` | 新增 count() 方法，检查 collection 是否已有数据 |
+| **对话 API** | `src/opensource_analyst/api/chat.py` | POST /chat — RAG 对话接口 |
+| 对话模型 | `src/opensource_analyst/models/chat.py` | ChatRequest / ChatResponse / SourceInfo |
+| 对话 Prompt | `src/opensource_analyst/prompts/chat.py` | RAG 对话 prompt 模板 |
+| 测试 | `tests/test_graph.py` | 16 个测试（新增错误路径、RAG 节点、Mermaid 导出、短路测试） |
+| 测试 | `tests/test_chat.py` | 6 个测试（模型校验、端点校验、全链路集成） |
 
 ### 9.2 测试结果
 
 ```
-31/31 PASSED (169.73s)
+46/46 PASSED (310s)
   M2: 9 tests (GitHub 客户端)
   M3: 4 tests (Agent 分析)
   M4: 6 tests (RAG 索引检索)
   M5: 5 tests (API 接口)
-  M6: 7 tests (LangGraph 工作流 — 新增)
+  M6: 16 tests (LangGraph 工作流 — 新增 9)
+  chat: 6 tests (RAG 对话接口 — 新增)
 ```
 
 ### 9.3 工作流结构
 
 ```
-START → load_repo → analyze → architecture → learning → END
-          │            │           │             │
-     GitHub API     LLM 调用    占位 (M8)    占位 (M9)
+load_repo → index_code → retrieve_context → analyze → architecture → learning → END
+   │          ↓ error?       ↓ error?        ↓ error?
+   │          END            END             END
+   │
+ GitHub API    RAG 索引      RAG 检索        LLM 分析      占位 (M8)    占位 (M9)
+           (ChromaDB 已有数据则跳过)
 ```
 
-### 9.4 技术要点
+### 9.4 新增 API 端点
 
-- **GraphState**：使用 `TypedDict` + `NotRequired`，除 `repo_url` 外所有字段默认不存在
-- **节点签名**：`(state: GraphState, config: RunnableConfig | None = None) -> dict`
-- **容错设计**：每个节点 try/except，异常写入 `state["error"]`，下游节点检查跳过
-- **API 集成**：`_run_analysis()` 改为调用 `build_workflow().ainvoke({"repo_url": ...})`
-- **占位节点**：architecture_node 和 learning_node 返回 `None`，M8/M9 替换内部逻辑
-- **RunnableConfig**：从 `langgraph.types` 导入，确保类型兼容 LangGraph 1.2.x
+| 方法 | 路径 | 用途 | 状态码 |
+|------|------|------|--------|
+| POST | `/analyze` | 发起分析 | 202 Accepted |
+| GET | `/task/{id}` | 查询状态 | 200 / 404 |
+| GET | `/task/{id}/result` | 获取结果 | 200 / 404 / 409 |
+| **POST** | **`/chat`** | **RAG 对话提问** | **200 / 400 / 422** |
+
+### 9.5 技术要点
+
+- **RAG 集成**：load_repo 后接 index_code（建 ChromaDB 索引）→ retrieve_context（语义检索代码片段）→ analyze 注入 LLM prompt
+- **索引复用**：`VectorStore.count()` 检查已有文档数，>0 则跳过下载+Embedding，直接复用
+- **条件路由**：每个节点后检查 error，有 error 则短路到 END，后续节点不再空跑
+- **Mermaid 导出**：`export_workflow_mermaid()` 返回工作流图 Mermaid 标记字符串
+- **对话接口**：POST /chat 接收自然语言问题，用已建索引做 RAG 检索 → DeepSeek 回答，返回答案+代码引用来源
+- **防御性编程**：每个节点检查 repo_info 是否缺失，analyze_node 有缺失防护
+- **异步/同步混编**：index_code_node 为 async（下载+Embedding 为 IO 密集），retrieve_context_node 为 sync
 
 ---
 

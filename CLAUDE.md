@@ -48,23 +48,35 @@ $env:Path = "C:\Users\Administrator\.local\bin;$env:Path"
 Package root: `src/opensource_analyst/`
 
 ```
-main.py          — FastAPI app entry (/, /health endpoints)
-api/             — REST API route definitions (M5)
+main.py          — FastAPI app entry (/, /health, routers)
+api/             — REST API route definitions (M5+)
+  ├── analyze.py — POST /analyze (start analysis, background task)
+  ├── task.py    — GET /task/{id}, GET /task/{id}/result
+  └── chat.py    — POST /chat (RAG Q&A over indexed code)
 agents/          — Expert Agent implementations (one per file)
-  ├── base.py    — BaseAgent (LLM wrapper) + Analyzer
+  └── base.py    — BaseAgent (LLM wrapper) + Analyzer
 graph/           — LangGraph StateGraph definition, nodes, edges (M6)
+  ├── state.py   — GraphState (9 fields: repo_url, repo_info, code_indexed, rag_context, overview, tech_stack, architecture, learning_path, error)
+  ├── nodes.py   — 6 nodes (load_repo / index_code / retrieve_context / analyze / architecture / learning)
+  └── workflow.py — build_workflow() + export_workflow_mermaid() + conditional error routing
 rag/             — Repository RAG retrieval logic (M4)
+  ├── indexer.py  — CodeIndexer (file filter → download → chunk → embed → store)
+  └── retriever.py — CodeRetriever (semantic search → context assembly)
 github/          — GitHub API client
   ├── client.py  — GitHubClient (auth, requests, URL parsing, exceptions)
   ├── readme.py  — ReadmeFetcher
   └── parser.py  — RepoParser (file tree + language stats)
 mcp/             — MCP server integration (M11)
 prompts/         — LLM prompt templates
-  └── overview.py — Project overview + tech stack analysis prompt
+  ├── overview.py — Project overview + tech stack analysis prompt
+  └── chat.py     — RAG Q&A prompt template
 vectorstore/     — ChromaDB wrapper and indexing logic (M4)
+  └── chroma.py  — DashScopeEmbeddings + VectorStore (CRUD + count)
 models/          — Pydantic models (no raw dict returns)
   ├── repo.py    — RepoInfo (owner, repo, readme, file_tree, languages)
-  └── analysis.py — AnalysisResult, ProjectOverview, TechStack, Dependency
+  ├── analysis.py — AnalysisResult, ProjectOverview, TechStack, Dependency
+  ├── task.py     — AnalyzeRequest, TaskStatus, TaskResult
+  └── chat.py     — ChatRequest, ChatResponse, SourceInfo
 ```
 
 ### Environment Variables (.env)
@@ -88,12 +100,11 @@ Temperature: 0.3
 ### Agent Pipeline (current → future)
 
 ```
-[Current — M5]
-POST /analyze → BackgroundTasks → GitHubClient + Analyzer → AnalysisResult
+[Current — M6]
+POST /analyze → BackgroundTasks → LangGraph Workflow (6 nodes) → AnalysisResult
+  load_repo → index_code → retrieve_context → analyze → architecture → learning
 GET /task/{id} → status polling → GET /task/{id}/result
-
-[Next — M6]
-LangGraph StateGraph: LoadRepo → Analyze → Architecture → Learning
+POST /chat → RAG 检索 + DeepSeek → 答案 + 代码引用来源
 
 [Future — M10+]
 [Coordinator Agent]
@@ -106,10 +117,16 @@ LangGraph StateGraph: LoadRepo → Analyze → Architecture → Learning
 ### LangGraph Workflow (Milestone 6 ✅)
 
 ```
-GraphState (repo_url, repo_info, overview, tech_stack, architecture, learning_path, error)
+GraphState (9 fields: repo_url, repo_info, code_indexed, rag_context, overview, tech_stack, architecture, learning_path, error)
 
-load_repo → analyze → architecture → learning → END
+load_repo → index_code → retrieve_context → analyze → architecture → learning → END
+              ↓ error?        ↓ error?       ↓ error?
+              END             END            END
 ```
+
+- index_code: ChromaDB 已有数据则跳过，避免重复索引
+- retrieve_context: 用 README 前 500 字符做语义检索，返回 top-10 代码片段
+- analyze: 注入 RAG 上下文到 LLM prompt，增强分析深度
 
 ## Development Rules
 
@@ -133,7 +150,7 @@ load_repo → analyze → architecture → learning → END
 | M3 | ✅ | Single-agent analysis (DeepSeek API, Analyzer, overview + tech stack) |
 | M4 | ✅ | Repository RAG (ChromaDB indexing + semantic search) |
 | M5 | ✅ | FastAPI API refinement (async tasks, /analyze endpoint) |
-| M6 | ⏳ | LangGraph workflow (StateGraph) |
+| M6 | ✅ | LangGraph workflow (StateGraph, 6 nodes, RAG integration, error routing, Mermaid export, /chat API) |
 | M7 | ⏳ | Dependency Agent |
 | M8 | ⏳ | Architecture Agent |
 | M9 | ⏳ | Learning Agent |

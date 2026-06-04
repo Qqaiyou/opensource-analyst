@@ -11,6 +11,9 @@ from opensource_analyst.github.readme import ReadmeFetcher
 from opensource_analyst.github.parser import RepoParser
 from opensource_analyst.models.repo import RepoInfo
 from opensource_analyst.agents.base import Analyzer
+from opensource_analyst.vectorstore.chroma import VectorStore
+from opensource_analyst.rag.indexer import CodeIndexer
+from opensource_analyst.rag.retriever import CodeRetriever
 
 
 async def load_repo_node(
@@ -45,19 +48,83 @@ async def load_repo_node(
         return {"error": str(e)}
 
 
-def analyze_node(
+async def index_code_node(
     state: GraphState, config: RunnableConfig | None = None
 ) -> dict[str, Any]:
-    """基于 RepoInfo 调用 LLM 生成项目概览和技术栈分析。
+    """下载仓库代码文件并建 ChromaDB 向量索引。
 
-    复用 M3 的 Analyzer.analyze()。
+    M4 的 CodeIndexer 全链路：过滤 → 下载 → 分块 → 向量化 → 存储。
+    如果 collection 已有数据则跳过，避免重复建索引。
     """
     if state.get("error"):
         return {}
 
     try:
+        repo_info = state["repo_info"]
+        if not repo_info:
+            return {"error": "index_code_node: repo_info 缺失"}
+
+        collection = f"{repo_info.owner}_{repo_info.repo}"
+        store = VectorStore(collection)
+
+        existing = store.count()
+        if existing > 0:
+            return {"code_indexed": existing}
+
+        indexer = CodeIndexer(store)
+        indexed = await indexer.index_repo(
+            repo_info.owner, repo_info.repo, repo_info.file_tree,
+        )
+        return {"code_indexed": indexed}
+    except Exception as e:
+        return {"error": str(e)}
+
+
+def retrieve_context_node(
+    state: GraphState, config: RunnableConfig | None = None
+) -> dict[str, Any]:
+    """基于 README 语义检索最相关的代码片段，作为 LLM 上下文。
+
+    M4 的 CodeRetriever 全链路：embed query → 相似搜索 → 拼接上下文。
+    """
+    if state.get("error"):
+        return {}
+
+    try:
+        repo_info = state["repo_info"]
+        if not repo_info:
+            return {"error": "retrieve_context_node: repo_info 缺失"}
+
+        collection = f"{repo_info.owner}_{repo_info.repo}"
+        store = VectorStore(collection)
+        retriever = CodeRetriever(store)
+
+        query = repo_info.readme[:500]
+        context = retriever.search_as_context(query, k=10)
+        return {"rag_context": context}
+    except Exception as e:
+        return {"error": str(e)}
+
+
+def analyze_node(
+    state: GraphState, config: RunnableConfig | None = None
+) -> dict[str, Any]:
+    """基于 RepoInfo + RAG 上下文调用 LLM 生成项目概览和技术栈分析。
+
+    复用 M3 的 Analyzer.analyze()，当 rag_context 可用时注入代码上下文。
+    """
+    if state.get("error"):
+        return {}
+
+    repo_info = state.get("repo_info")
+    if not repo_info:
+        return {"error": "analyze_node: repo_info 缺失，上游节点可能未正常执行"}
+
+    try:
         analyzer = Analyzer()
-        result = analyzer.analyze(state["repo_info"])  # type: ignore[arg-type]
+        rag_context = state.get("rag_context")
+
+        result = analyzer.analyze(repo_info, rag_context=rag_context)  # type: ignore[arg-type]
         return {
             "overview": result.overview,
             "tech_stack": result.tech_stack,
