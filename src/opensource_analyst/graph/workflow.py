@@ -1,6 +1,7 @@
 """LangGraph 工作流工厂 — 构建并编译 StateGraph."""
 
 from langgraph.graph import StateGraph, END
+from langgraph.graph.state import CompiledStateGraph
 
 from opensource_analyst.graph.state import GraphState
 from opensource_analyst.graph.nodes import (
@@ -20,7 +21,7 @@ def _should_continue(state: GraphState) -> str:
     return "continue"
 
 
-def build_workflow() -> StateGraph:
+def build_workflow() -> CompiledStateGraph:
     """构建并编译分析工作流。
 
     返回编译后的 StateGraph（LangGraph Runnable），

@@ -49,7 +49,10 @@ async def chat(req: ChatRequest) -> ChatResponse:
     )
 
     agent = BaseAgent()
-    answer = agent._invoke(prompt)
+    try:
+        answer = agent.invoke(prompt)
+    except Exception as e:
+        raise HTTPException(status_code=502, detail=f"LLM 调用失败: {e}")
 
     sources = [
         SourceInfo(

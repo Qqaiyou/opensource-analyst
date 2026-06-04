@@ -34,17 +34,21 @@ class BaseAgent:
             temperature=temperature,
         )
 
-    def _invoke(self, prompt: str) -> str:
+    def invoke(self, prompt: str) -> str:
         """发送 prompt 到 LLM，返回原始文本。"""
         response = self._llm.invoke(prompt)
         return response.content.strip()  # type: ignore[no-any-return]
+
+    def _invoke(self, prompt: str) -> str:
+        """已废弃：请使用 invoke()。"""
+        return self.invoke(prompt)
 
     def _invoke_json(self, prompt: str) -> dict[str, Any]:
         """发送 prompt 到 LLM，解析返回的 JSON。
 
         包含自动修复：去掉 markdown 代码块标记、尝试提取第一个 JSON 对象。
         """
-        raw = self._invoke(prompt)
+        raw = self.invoke(prompt)
 
         # 去掉可能的 markdown 代码块标记
         if raw.startswith("```"):

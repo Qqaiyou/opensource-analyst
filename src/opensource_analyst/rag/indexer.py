@@ -109,8 +109,6 @@ class CodeIndexer:
         if github_token:
             headers["Authorization"] = f"Bearer {github_token}"
 
-        url = f"https://raw.githubusercontent.com/{owner}/{repo}/master/{path}"
-
         # 先尝试 master，失败再试 main
         for branch in ["master", "main"]:
             url = f"https://raw.githubusercontent.com/{owner}/{repo}/{branch}/{path}"
