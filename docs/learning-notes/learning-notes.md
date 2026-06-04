@@ -639,4 +639,124 @@ uv run python -c "from opensource_analyst.graph.workflow import export_workflow_
 
 ---
 
+## Milestone 8 — Architecture Agent
+
+### Step 1: 概念讲解
+
+- **ArchitectureAgent（架构分析 Agent）**：从目录结构、import 关系、入口文件三个维度分析项目架构，用 LLM 生成结构化架构报告
+- **静态代码分析**：不运行代码，直接解析源文件提取信息（AST 解析 import 语句、类/函数定义等）。M8 用 Python 标准库 `ast` 模块做轻量级分析
+- **模块分组**：将扁平的文件树按目录前缀聚合为逻辑模块。核心算法：跳过已知非源码目录（tests/、docs/、examples/ 等），取前两级目录名作为模块标识
+- **AST（抽象语法树）**：Python 源码的树状结构表示，`ast.parse()` 解析代码，`ast.walk()` 遍历所有节点，遇到 `ast.Import` 提取 `import X`，遇到 `ast.ImportFrom` 提取 `from .X import Y`
+- **入口文件识别**：按优先级匹配命名模式（`__main__.py` > `main.py` > `app.py` > `server.py` > ...），找不到匹配项则 fallback 到项目内第一个 `.py` 文件
+- **架构模式**：常见开源项目架构模式——分层架构（Controller→Service→Repository）、MVC、插件式/中间件架构、管道-过滤器、微内核等
+- **模块依赖图**：项目内部模块间的 import 关系构成有向图，图中每个节点是一个模块，边表示依赖方向（如 `tinydb → tinydb.storages`）
+
+### Step 2: 在项目中的作用
+
+**为什么需要 M8**：Milestone.md 将 M8 定义为"项目核心"。因为用户面对陌生项目的第一问题是："我应该从哪里开始读代码？这个项目是怎么组织的？"M8 直接回答这个问题。
+
+M7 告诉你"用了什么技术"，M8 告诉你"这些技术是怎么组织在一起的"。
+
+**输入**：`file_tree` + `RepoInfo` + M7 的依赖分析结果（可选）
+**输出**：`ArchitectureResult`，含 architecture_pattern / modules / entry_file / module_relations / architecture_summary
+
+**在工作流中的位置**：
+```
+dependency → architecture（← M8 占位升级） → analyze → learning
+                        ↓
+          ArchitectureAnalyzer（静态分析） → ArchitectureAgent（LLM 解读）
+          产出 ArchitectureResult 写入 GraphState
+```
+
+**影响下游**：
+- M9 Learning Agent 需要 architecture 数据来知道"先学哪个模块"
+- M12 可用 architecture 数据生成 Mermaid 图
+
+### Step 3: 设计方案
+
+#### 两个新类 + 一个新 Prompt + 一个模型
+
+```
+ArchitectureAnalyzer（纯静态，不涉及 LLM）
+  ├── group_modules()       — 按目录前缀分组，识别模块边界
+  ├── identify_entry_file() — 按命名模式优先级识别入口
+  ├── extract_imports()     — AST 解析 import 语句
+  ├── is_project_import()   — 过滤标准库/第三方库
+  ├── infer_module_relations() — 从 import_map 构建模块依赖图
+  └── download_key_files()  — 从 GitHub raw 下载 .py 文件（最多30个）
+
+ArchitectureAgent(BaseAgent)（LLM 解读）
+  └── analyze(repo_info, modules, entry_file, import_map, dependencies?)
+      → ArchitectureResult
+
+新增模型:
+  ModuleInfo          — name / path / responsibility / key_files / imports / exported_symbols
+  ArchitectureResult  — architecture_pattern / modules / entry_file / module_relations / architecture_summary
+```
+
+#### 架构分析数据流
+
+```
+file_tree（扁平列表）
+  │
+  ├── 1. group_modules() — 按目录聚合 → {module_name: [files]}
+  ├── 2. identify_entry_file() — 命名匹配 → "tinydb/__init__.py"
+  ├── 3. download_key_files() — GitHub raw 下载 .py (max 30) → {path: source_code}
+  ├── 4. extract_imports() × N — AST 解析 → {path: [import_name]}
+  ├── 5. is_project_import() — 过滤外部库 → 仅保留项目内引用
+  ├── 6. infer_module_relations() — 构建依赖图 → [{from, to, type}]
+  │
+  └── 7. ArchitectureAgent.analyze() — LLM: 模式识别 + 职责推断 + 报告生成
+        → ArchitectureResult
+```
+
+### Step 4: 代码产出
+
+| 文件 | 变更类型 | 说明 |
+|------|----------|------|
+| `src/opensource_analyst/github/architecture_analyzer.py` | 新建 | ~222 行：ArchitectureAnalyzer 类（group_modules / identify_entry_file / extract_imports / is_project_import / infer_module_relations / download_key_files） |
+| `src/opensource_analyst/agents/architecture.py` | 新建 | ~111 行：ArchitectureAgent 类（analyze → LLM 架构报告） |
+| `src/opensource_analyst/prompts/architecture.py` | 新建 | ~56 行：ARCHITECTURE_PROMPT 模板 |
+| `tests/test_architecture.py` | 新建 | ~227 行：12 个测试（3 分组 + 4 入口 + 2 AST + 1 模型 + 2 集成 LLM） |
+| `src/opensource_analyst/models/analysis.py` | 修改 | 新增 `ModuleInfo` + `ArchitectureResult` 两个 Pydantic 模型 |
+| `src/opensource_analyst/graph/state.py` | 修改 | `architecture` 字段类型从 `Any` 改为 `ArchitectureResult \| None` |
+| `src/opensource_analyst/graph/nodes.py` | 修改 | `architecture_node` 从 `def → return {"architecture": None}` 占位 → `async def → 5步实际分析链路` |
+| `src/opensource_analyst/graph/workflow.py` | 修改 | 节点顺序重排：dependency → architecture → analyze（analyze 可拿到架构数据） |
+| `tests/test_graph.py` | 修改 | 更新占位节点测试：`architecture_node` 改为 `asyncio.run()` 调用 + 真实产出验证 |
+
+**关键技术点：**
+
+- **模块分组算法**：按前两级目录前缀聚合，`ROOT_IGNORE` 集合（tests/docs/examples/.github 等）单独分到对应组，避免与核心业务模块混淆
+- **入口识别 fallback 链**：10 种命名模式按优先级匹配 → 根目录 `.py` → 任意 `.py`，确保任何项目都能找到入口
+- **AST import 提取**：区分 `import X`（`ast.Import`，从 `names` 字段提取）和 `from .X import Y`（`ast.ImportFrom`，从 `module` + `level` 字段提取），相对导入用 `.` 数量表示层级
+- **项目内 import 过滤**：`is_project_import()` 同时检测相对导入（以 `.` 开头）和绝对导入（前缀匹配已知模块名），排除 `os`、`sys`、`numpy` 等外部依赖
+- **模块关系推断**：从 `{file: [imports]}` 反查 `{file: module}` 索引，构建 `{from_module, to_module}` 有向边，去重后输出
+- **LLM 只做语义理解**：数据提取（模块、入口、import、关系）全部由 ArchitectureAnalyzer 在无 LLM 的情况下完成，ArchitectureAgent 只负责语义解读（模式识别、职责推断、中文总结）
+- **节点顺序重排**：M8 将 architecture 移到 analyze 之前，使 analyze 节点能同时拿到 dependencies + architecture 两个维度的数据来增强分析质量
+- **占位测试适配**：`architecture_node` 从同步占位变为异步实现后，旧测试需要加 `asyncio.run()` 包装 + 更新预期结果
+
+### Step 5: 验收标准
+
+```bash
+# 运行 M8 专项测试
+uv run pytest tests/test_architecture.py -v
+# 预期：12 passed
+#   - 3 分组：TinyDB 模块/多层目录 src.controller/扁平项目
+#   - 4 入口：main.py / __main__.py / app.py / fallback
+#   - 2 AST：import 提取 / 空代码
+#   - 1 模型：ArchitectureResult 字段校验
+#   - 2 集成：LLM TinyDB 架构报告 / 空项目
+
+# 全量回归测试
+uv run pytest -v
+# 预期：70/70 passed
+#   M2: 9 + M3: 4 + M4: 6 + M5: 5 + M6: 16 + chat: 6 + M7: 12 + M8: 12
+
+# 验证工作流结构
+uv run python -c "from opensource_analyst.graph.workflow import export_workflow_mermaid; print(export_workflow_mermaid())"
+# 预期：Mermaid 图中 architecture 节点位于 dependency 和 analyze 之间
+```
+
+---
+
 *笔记结束。最后更新：2026-06-04*
