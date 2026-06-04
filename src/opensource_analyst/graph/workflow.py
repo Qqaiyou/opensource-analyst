@@ -29,7 +29,7 @@ def build_workflow() -> CompiledStateGraph:
     调用 app.ainvoke({"repo_url": ...}) 即可执行全流程。
 
     工作流结构:
-        load_repo → index_code → retrieve_context → dependency → analyze → architecture → learning → END
+        load_repo → index_code → retrieve_context → dependency → architecture → analyze → learning → END
         每个节点后检查 error，有 error 则直接跳转到 END。
     """
     graph = StateGraph(GraphState)
@@ -52,10 +52,13 @@ def build_workflow() -> CompiledStateGraph:
         "retrieve_context", _should_continue, {"continue": "dependency", END: END}
     )
     graph.add_conditional_edges(
-        "dependency", _should_continue, {"continue": "analyze", END: END}
+        "dependency", _should_continue, {"continue": "architecture", END: END}
     )
     graph.add_conditional_edges(
-        "analyze", _should_continue, {"continue": "architecture", END: END}
+        "architecture", _should_continue, {"continue": "analyze", END: END}
+    )
+    graph.add_conditional_edges(
+        "analyze", _should_continue, {"continue": "learning", END: END}
     )
     graph.add_edge("architecture", "learning")
     graph.add_edge("learning", END)

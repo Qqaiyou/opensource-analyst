@@ -34,3 +34,24 @@ class AnalysisResult(BaseModel):
 
     overview: ProjectOverview
     tech_stack: TechStack
+
+
+class ModuleInfo(BaseModel):
+    """单个模块信息 — M8 架构分析产出."""
+
+    name: str
+    path: str
+    responsibility: str
+    key_files: list[str]
+    imports: list[str]
+    exported_symbols: list[str]
+
+
+class ArchitectureResult(BaseModel):
+    """架构分析结果 — M8 ArchitectureAgent 产出."""
+
+    architecture_pattern: str
+    modules: list[ModuleInfo]
+    entry_file: str | None = None
+    module_relations: list[dict]
+    architecture_summary: str

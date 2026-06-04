@@ -1,7 +1,7 @@
 # OpenSource Analyst - 项目进度跟踪
 
 > 最后更新：2026-06-04
-> 当前阶段：Milestone 7 ✅ 已完成 | 下一阶段：Milestone 8
+> 当前阶段：Milestone 8 ✅ 已完成 | 下一阶段：Milestone 9
 
 ---
 
@@ -27,7 +27,7 @@
 | M5 | FastAPI 接口 | ✅ 已完成 | 2026-06-02 | - |
 | M6 | LangGraph 工作流 | ✅ 已完成 | 2026-06-03 | - |
 | M7 | Dependency Agent | ✅ 已完成 | 2026-06-04 | - |
-| M8 | Architecture Agent | ⏳ 待开始 | - | - |
+| M8 | Architecture Agent | ✅ 已完成 | 2026-06-04 | - |
 | M9 | Learning Agent | ⏳ 待开始 | - | - |
 | M10 | Coordinator Agent | ⏳ 待开始 | - | - |
 | M11 | MCP 集成 | ⏳ 待开始 | - | - |
@@ -424,6 +424,70 @@ file_tree → DependencyFileParser.detect_dep_files() → [pyproject.toml, ...]
 - **LLM 增强**：依赖文件提取的硬数据 + LLM 语义理解，既准确又有深度
 - **错误短路保持**：dependency 节点完全遵循现有的 error→END 短路模式
 - **向后兼容**：`Analyzer.analyze(dependencies=None)` 默认值保证旧调用路径不破坏
+
+---
+
+## 九点六、Milestone 8 完成详情
+
+### 9.6.1 产出文件
+
+| 文件 | 路径 | 内容 |
+|------|------|------|
+| ArchitectureAnalyzer | `src/opensource_analyst/github/architecture_analyzer.py` | 模块分组 + 入口文件识别 + AST import 提取 + 模块关系推断 |
+| ArchitectureAgent | `src/opensource_analyst/agents/architecture.py` | LLM 架构模式识别 + 模块职责推断 + 架构报告生成 |
+| ArchitecturePrompt | `src/opensource_analyst/prompts/architecture.py` | 架构分析专用 prompt 模板 |
+| ArchitectureResult 模型 | `src/opensource_analyst/models/analysis.py` | ArchitectureResult + ModuleInfo Pydantic 模型 |
+| GraphState 增强 | `src/opensource_analyst/graph/state.py` | architecture 字段类型从 Any → ArchitectureResult |
+| architecture_node 实现 | `src/opensource_analyst/graph/nodes.py` | 占位节点 → 完整 5 步分析链路 |
+| 工作流重排 | `src/opensource_analyst/graph/workflow.py` | 节点顺序改为 dependency → architecture → analyze |
+| 测试 | `tests/test_architecture.py` | 12 个测试 (8 单元 + 2 模型 + 2 集成 LLM) |
+| 测试修复 | `tests/test_graph.py` | 更新占位节点测试以适配 async 真实实现 |
+
+### 9.6.2 测试结果
+
+```
+70/70 PASSED (M2-M8 累计)
+  M2:   9 tests (GitHub 客户端)
+  M3:   4 tests (Agent 分析)
+  M4:   6 tests (RAG 索引检索)
+  M5:   5 tests (API 接口)
+  M6:  16 tests (LangGraph 工作流)
+  M7:  12 tests (依赖检测 + 解析 + Agent 分析)
+  chat: 6 tests (RAG 对话接口)
+  M8:  12 tests (模块分组 + 入口识别 + AST + 模型 + Agent)  ← 新增
+```
+
+### 9.6.3 工作流结构 (M8)
+
+```
+load_repo → index_code → retrieve_context → dependency → architecture → analyze → learning → END
+              ↓ error?        ↓ error?       ↓ error?    ↓ error?      ↓ error?
+              END             END            END         END           END
+
+GitHub API    RAG 索引      RAG 检索      依赖解析    架构分析       LLM 分析     占位
+           (复用已有索引)                + LLM 分类  (静态+LLM)    (注入全部上下文)
+```
+
+### 9.6.4 架构分析数据流
+
+```
+file_tree → ArchitectureAnalyzer.group_modules() → {module_name: [files]}
+  → ArchitectureAnalyzer.identify_entry_file() → "tinydb/__init__.py"
+  → download_key_files() (最多 30 个 .py) → {path: source_code}
+  → ArchitectureAnalyzer.extract_imports() × N → {path: [import_name]}
+  → ArchitectureAnalyzer.infer_module_relations() → [{from, to, type}]
+  → ArchitectureAgent.analyze() (LLM) → ArchitectureResult
+```
+
+### 9.6.5 技术要点
+
+- **模块分组算法**：按前两级目录分组，识别 ROOT_IGNORE 中的非源码目录并单独分类
+- **入口识别优先级**：__main__.py > main.py > app.py > server.py > run.py > ... > fallback 首个 .py
+- **AST import 提取**：处理 `import X`（绝对）和 `from .X import Y`（相对）两种语法
+- **项目内 import 过滤**：`is_project_import()` 排除标准库和第三方库，只保留项目内部引用
+- **模块关系推断**：从 import_map 反向构建 {from_module → to_module} 的有向图
+- **LLM 介入点**：只做语义理解（模式识别、职责推断、总结），不做数据提取
+- **节点顺序优化**：dependency → architecture → analyze，使 analyze 能同时拿到依赖和架构两维数据
 
 ---
 

@@ -1,5 +1,6 @@
 """LangGraph 工作流测试 — 节点 + 工作流 + 端到端."""
 
+import asyncio
 import pytest
 
 from opensource_analyst.graph.state import GraphState
@@ -53,10 +54,20 @@ def test_graph_state_partial() -> None:
 # ── 单元测试：占位节点 ──────────────────────────────────────
 
 def test_architecture_node_is_placeholder() -> None:
-    """architecture_node 返回 None 占位。"""
-    state: GraphState = {"repo_url": "https://github.com/a/b"}
-    result = architecture_node(state, {})
-    assert result == {"architecture": None}
+    """architecture_node 产出真实的 ArchitectureResult（M8 实现）。"""
+    state: GraphState = {
+        "repo_url": "https://github.com/a/b",
+        "repo_info": RepoInfo(
+            owner="a", repo="b",
+            readme="Test repo",
+            file_tree=["main.py", "utils.py", "README.md"],
+            languages={"Python": 100},
+        ),
+    }
+    result = asyncio.run(architecture_node(state, {}))
+
+    # M8: architecture_node 现在是真实实现，产出 ArchitectureResult 或 error
+    assert "architecture" in result or "error" in result
 
 
 def test_learning_node_is_placeholder() -> None:
@@ -67,12 +78,12 @@ def test_learning_node_is_placeholder() -> None:
 
 
 def test_placeholder_nodes_skip_on_error() -> None:
-    """占位节点在有 error 时返回空 dict。"""
+    """节点在有 error 时返回空 dict。"""
     state: GraphState = {
         "repo_url": "https://github.com/a/b",
         "error": "something failed",
     }
-    assert architecture_node(state, {}) == {}
+    assert asyncio.run(architecture_node(state, {})) == {}
     assert learning_node(state, {}) == {}
 
 

@@ -5,7 +5,9 @@ from typing import Any
 from typing_extensions import NotRequired, TypedDict
 
 from opensource_analyst.models.repo import RepoInfo
-from opensource_analyst.models.analysis import ProjectOverview, TechStack, Dependency
+from opensource_analyst.models.analysis import (
+    ProjectOverview, TechStack, Dependency, ArchitectureResult,
+)
 
 
 class GraphState(TypedDict):
@@ -22,6 +24,6 @@ class GraphState(TypedDict):
     dependencies: NotRequired[list[Dependency] | None]
     overview: NotRequired[ProjectOverview | None]
     tech_stack: NotRequired[TechStack | None]
-    architecture: NotRequired[Any]
+    architecture: NotRequired[ArchitectureResult | None]
     learning_path: NotRequired[Any]
     error: NotRequired[str | None]

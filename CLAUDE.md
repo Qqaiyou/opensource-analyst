@@ -54,8 +54,9 @@ api/             — REST API route definitions (M5+)
   ├── task.py    — GET /task/{id}, GET /task/{id}/result
   └── chat.py    — POST /chat (RAG Q&A over indexed code)
 agents/          — Expert Agent implementations (one per file)
-  ├── base.py         — BaseAgent (LLM wrapper) + Analyzer
-  └── dependency.py   — DependencyAgent (M7: dep file parsing + LLM classification)
+  ├── base.py           — BaseAgent (LLM wrapper) + Analyzer
+  ├── dependency.py     — DependencyAgent (M7: dep file parsing + LLM classification)
+  └── architecture.py   — ArchitectureAgent (M8: module grouping + import analysis + LLM report)
 graph/           — LangGraph StateGraph definition, nodes, edges (M6)
   ├── state.py   — GraphState (11 fields: repo_url, repo_info, code_indexed, rag_context, parsed_dependencies, dependencies, overview, tech_stack, architecture, learning_path, error)
   ├── nodes.py   — 7 nodes (load_repo / index_code / retrieve_context / dependency / analyze / architecture / learning)
@@ -64,20 +65,22 @@ rag/             — Repository RAG retrieval logic (M4)
   ├── indexer.py  — CodeIndexer (file filter → download → chunk → embed → store)
   └── retriever.py — CodeRetriever (semantic search → context assembly)
 github/          — GitHub API client
-  ├── client.py            — GitHubClient (auth, requests, URL parsing, exceptions)
-  ├── readme.py            — ReadmeFetcher
-  ├── parser.py            — RepoParser (file tree + language stats)
-  └── dependency_parser.py — DependencyFileParser (M7: dep file detection + parsing)
+  ├── client.py                 — GitHubClient (auth, requests, URL parsing, exceptions)
+  ├── readme.py                 — ReadmeFetcher
+  ├── parser.py                 — RepoParser (file tree + language stats)
+  ├── dependency_parser.py      — DependencyFileParser (M7: dep file detection + parsing)
+  └── architecture_analyzer.py  — ArchitectureAnalyzer (M8: module grouping + AST import + entry file)
 mcp/             — MCP server integration (M11)
 prompts/         — LLM prompt templates
-  ├── overview.py    — Project overview + tech stack analysis prompt
-  ├── dependency.py  — Dependency analysis prompt (M7)
-  └── chat.py        — RAG Q&A prompt template
+  ├── overview.py      — Project overview + tech stack analysis prompt
+  ├── dependency.py    — Dependency analysis prompt (M7)
+  ├── architecture.py  — Architecture analysis prompt (M8)
+  └── chat.py          — RAG Q&A prompt template
 vectorstore/     — ChromaDB wrapper and indexing logic (M4)
   └── chroma.py  — DashScopeEmbeddings + VectorStore (CRUD + count)
 models/          — Pydantic models (no raw dict returns)
   ├── repo.py    — RepoInfo (owner, repo, readme, file_tree, languages)
-  ├── analysis.py — AnalysisResult, ProjectOverview, TechStack, Dependency
+  ├── analysis.py — AnalysisResult, ProjectOverview, TechStack, Dependency, ArchitectureResult, ModuleInfo
   ├── task.py     — AnalyzeRequest, TaskStatus, TaskResult
   └── chat.py     — ChatRequest, ChatResponse, SourceInfo
 ```
@@ -103,9 +106,9 @@ Temperature: 0.3
 ### Agent Pipeline (current → future)
 
 ```
-[Current — M7]
+[Current — M8]
 POST /analyze → BackgroundTasks → LangGraph Workflow (7 nodes) → AnalysisResult
-  load_repo → index_code → retrieve_context → dependency → analyze → architecture → learning
+  load_repo → index_code → retrieve_context → dependency → architecture → analyze → learning
 GET /task/{id} → status polling → GET /task/{id}/result
 POST /chat → RAG 检索 + DeepSeek → 答案 + 代码引用来源
 
@@ -113,24 +116,25 @@ POST /chat → RAG 检索 + DeepSeek → 答案 + 代码引用来源
 [Coordinator Agent]
   ├── RepoAgent        — GitHub data fetching
   ├── DependencyAgent  — tech stack / dependency analysis ✅ (M7)
-  ├── ArchitectureAgent — project structure & module analysis
+  ├── ArchitectureAgent — project structure & module analysis ✅ (M8)
   └── LearningAgent    — learning path & interview questions
 ```
 
-### LangGraph Workflow (Milestone 7 ✅)
+### LangGraph Workflow (Milestone 8 ✅)
 
 ```
 GraphState (11 fields: repo_url, repo_info, code_indexed, rag_context, parsed_dependencies, dependencies, overview, tech_stack, architecture, learning_path, error)
 
-load_repo → index_code → retrieve_context → dependency → analyze → architecture → learning → END
-              ↓ error?        ↓ error?       ↓ error?    ↓ error?
-              END             END            END         END
+load_repo → index_code → retrieve_context → dependency → architecture → analyze → learning → END
+              ↓ error?        ↓ error?       ↓ error?    ↓ error?      ↓ error?
+              END             END            END         END           END
 ```
 
 - index_code: ChromaDB 已有数据则跳过，避免重复索引
 - retrieve_context: 用 README 前 500 字符做语义检索，返回 top-10 代码片段
 - dependency: 检测依赖文件(8种) → 下载→ 解析 → LLM 分类（core/dev/build/test/peer）+ 用途说明
-- analyze: 注入 RAG 上下文 + 依赖分析结果到 LLM prompt，增强分析深度
+- architecture: 模块分组 → 入口识别 → AST import 分析 → LLM 架构报告
+- analyze: 注入 RAG 上下文 + 依赖分析 + 架构分析结果到 LLM prompt，增强分析深度
 
 ## Development Rules
 
@@ -156,7 +160,7 @@ load_repo → index_code → retrieve_context → dependency → analyze → arc
 | M5 | ✅ | FastAPI API refinement (async tasks, /analyze endpoint) |
 | M6 | ✅ | LangGraph workflow (StateGraph, 6 nodes, RAG integration, error routing, Mermaid export, /chat API) |
 | M7 | ✅ | Dependency Agent |
-| M8 | ⏳ | Architecture Agent |
+| M8 | ✅ | Architecture Agent |
 | M9 | ⏳ | Learning Agent |
 | M10 | ⏳ | Coordinator Agent (multi-agent orchestration) |
 | M11 | ⏳ | MCP integration (GitHub, Filesystem, Browser) |

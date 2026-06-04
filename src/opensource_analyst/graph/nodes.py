@@ -13,6 +13,8 @@ from opensource_analyst.github.dependency_parser import DependencyFileParser
 from opensource_analyst.models.repo import RepoInfo
 from opensource_analyst.agents.base import Analyzer
 from opensource_analyst.agents.dependency import DependencyAgent
+from opensource_analyst.agents.architecture import ArchitectureAgent
+from opensource_analyst.github.architecture_analyzer import ArchitectureAnalyzer
 from opensource_analyst.vectorstore.chroma import VectorStore
 from opensource_analyst.rag.indexer import CodeIndexer
 from opensource_analyst.rag.retriever import CodeRetriever
@@ -179,13 +181,64 @@ def analyze_node(
         return {"error": str(e)}
 
 
-def architecture_node(
+async def architecture_node(
     state: GraphState, config: RunnableConfig | None = None
 ) -> dict[str, Any]:
-    """架构分析节点 — M8 实现，当前为占位。"""
+    """静态分析目录结构 → 识别模块+入口 → AST 提取 import → LLM 架构报告。
+
+    M8 ArchitectureAgent 全链路：
+    1. ArchitectureAnalyzer 按目录分组模块
+    2. 识别入口文件
+    3. 下载关键 .py 文件做 AST import 分析
+    4. ArchitectureAgent (LLM) 生成架构报告
+    """
     if state.get("error"):
         return {}
-    return {"architecture": None}
+
+    try:
+        repo_info = state["repo_info"]
+        if not repo_info:
+            return {"error": "architecture_node: repo_info 缺失"}
+
+        file_tree = repo_info.file_tree
+
+        # 1. 模块分组
+        modules = ArchitectureAnalyzer.group_modules(file_tree)
+
+        # 2. 入口文件识别
+        entry_file = ArchitectureAnalyzer.identify_entry_file(file_tree)
+
+        # 3. 下载关键文件 + AST import 提取
+        analyzer = ArchitectureAnalyzer()
+        source_files = await analyzer.download_key_files(
+            repo_info.owner, repo_info.repo, file_tree, max_files=30,
+        )
+
+        import_map: dict[str, list[str]] = {}
+        for path, code in source_files.items():
+            imports = ArchitectureAnalyzer.extract_imports(code)
+            # 只保留项目内部 import
+            project_imports = [
+                i for i in imports
+                if ArchitectureAnalyzer.is_project_import(i, modules)
+            ]
+            if project_imports:
+                import_map[path] = project_imports
+
+        # 4. 模块间关系推断
+        relations = ArchitectureAnalyzer.infer_module_relations(modules, import_map)
+
+        # 5. LLM 深度分析
+        agent = ArchitectureAgent()
+        dependencies = state.get("dependencies")
+        result = agent.analyze(
+            repo_info, modules, entry_file, import_map,
+            dependencies=dependencies,  # type: ignore[arg-type]
+        )
+
+        return {"architecture": result}
+    except Exception as e:
+        return {"error": str(e)}
 
 
 def learning_node(
