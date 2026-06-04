@@ -7,7 +7,7 @@ from typing import Any
 from langchain_openai import ChatOpenAI
 
 from opensource_analyst.models.repo import RepoInfo
-from opensource_analyst.models.analysis import AnalysisResult
+from opensource_analyst.models.analysis import AnalysisResult, Dependency
 from opensource_analyst.prompts.overview import OVERVIEW_PROMPT
 
 
@@ -69,13 +69,15 @@ class Analyzer(BaseAgent):
     """单 Agent 分析器 — 基于 RepoInfo 生成项目概览和技术栈分析."""
 
     def analyze(
-        self, repo_info: RepoInfo, rag_context: str | None = None
+        self, repo_info: RepoInfo, rag_context: str | None = None,
+        dependencies: list[Dependency] | None = None,
     ) -> AnalysisResult:
         """分析仓库，返回结构化结果。
 
         Args:
             repo_info: M2 产出的仓库数据（README + 文件树 + 语言统计）
             rag_context: 可选的 RAG 检索代码片段上下文，注入 prompt 增强分析
+            dependencies: 可选的 M7 依赖分析结果，注入 prompt 丰富技术栈
 
         Returns:
             AnalysisResult: 包含概览和技术栈的完整分析
@@ -83,10 +85,21 @@ class Analyzer(BaseAgent):
         file_tree_str = "\n".join(repo_info.file_tree[:200])
         languages_str = json.dumps(repo_info.languages, ensure_ascii=False)
 
+        if dependencies:
+            dep_lines = []
+            for d in dependencies:
+                ver = f" {d.version}" if d.version else ""
+                cat = f" [{d.category}]" if d.category else ""
+                dep_lines.append(f"- {d.name}{ver}{cat}: {d.purpose}")
+            dependencies_str = "\n".join(dep_lines)
+        else:
+            dependencies_str = "（未提供依赖分析数据）"
+
         prompt = OVERVIEW_PROMPT.format(
             readme=repo_info.readme,
             file_tree=file_tree_str,
             languages=languages_str,
+            dependencies=dependencies_str,
         )
 
         if rag_context:

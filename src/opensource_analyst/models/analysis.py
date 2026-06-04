@@ -7,6 +7,8 @@ class Dependency(BaseModel):
     """单个依赖项."""
 
     name: str
+    version: str | None = None
+    category: str | None = None  # core / dev / build / test
     purpose: str
 
 

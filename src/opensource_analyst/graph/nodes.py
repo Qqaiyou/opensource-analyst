@@ -9,8 +9,10 @@ from opensource_analyst.graph.state import GraphState
 from opensource_analyst.github.client import GitHubClient
 from opensource_analyst.github.readme import ReadmeFetcher
 from opensource_analyst.github.parser import RepoParser
+from opensource_analyst.github.dependency_parser import DependencyFileParser
 from opensource_analyst.models.repo import RepoInfo
 from opensource_analyst.agents.base import Analyzer
+from opensource_analyst.agents.dependency import DependencyAgent
 from opensource_analyst.vectorstore.chroma import VectorStore
 from opensource_analyst.rag.indexer import CodeIndexer
 from opensource_analyst.rag.retriever import CodeRetriever
@@ -106,12 +108,51 @@ def retrieve_context_node(
         return {"error": str(e)}
 
 
+async def dependency_node(
+    state: GraphState, config: RunnableConfig | None = None
+) -> dict[str, Any]:
+    """检测依赖文件 → 下载 → 解析 → LLM 分类解读。
+
+    M7 Dependency Agent 全链路：文件检测 → 解析 → LLM 深度分析。
+    产出 parsed_dependencies 和 dependencies 写入 state。
+    """
+    if state.get("error"):
+        return {}
+
+    try:
+        repo_info = state["repo_info"]
+        if not repo_info:
+            return {"error": "dependency_node: repo_info 缺失"}
+
+        # 1. 检测依赖文件
+        dep_files = DependencyFileParser.detect_dep_files(repo_info.file_tree)
+
+        # 2. 下载并解析
+        parser = DependencyFileParser()
+        parsed = await parser.fetch_and_parse(
+            repo_info.owner, repo_info.repo, dep_files,
+        )
+
+        # 3. LLM 深度分析
+        agent = DependencyAgent()
+        dependencies = agent.analyze(repo_info, parsed)
+
+        parsed_dicts = [p.model_dump() for p in parsed]
+
+        return {
+            "parsed_dependencies": parsed_dicts,
+            "dependencies": dependencies,
+        }
+    except Exception as e:
+        return {"error": str(e)}
+
+
 def analyze_node(
     state: GraphState, config: RunnableConfig | None = None
 ) -> dict[str, Any]:
-    """基于 RepoInfo + RAG 上下文调用 LLM 生成项目概览和技术栈分析。
+    """基于 RepoInfo + RAG 上下文 + 依赖分析结果调用 LLM 生成项目概览和技术栈分析。
 
-    复用 M3 的 Analyzer.analyze()，当 rag_context 可用时注入代码上下文。
+    复用 M3 的 Analyzer.analyze()，当 rag_context 或 dependencies 可用时注入上下文。
     """
     if state.get("error"):
         return {}
@@ -123,8 +164,13 @@ def analyze_node(
     try:
         analyzer = Analyzer()
         rag_context = state.get("rag_context")
+        dependencies = state.get("dependencies")
 
-        result = analyzer.analyze(repo_info, rag_context=rag_context)  # type: ignore[arg-type]
+        result = analyzer.analyze(
+            repo_info,
+            rag_context=rag_context,  # type: ignore[arg-type]
+            dependencies=dependencies,  # type: ignore[arg-type]
+        )
         return {
             "overview": result.overview,
             "tech_stack": result.tech_stack,

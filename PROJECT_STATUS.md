@@ -1,7 +1,7 @@
 # OpenSource Analyst - 项目进度跟踪
 
 > 最后更新：2026-06-04
-> 当前阶段：Milestone 6 ✅ 已完成 | 下一阶段：Milestone 7
+> 当前阶段：Milestone 7 ✅ 已完成 | 下一阶段：Milestone 8
 
 ---
 
@@ -26,7 +26,7 @@
 | M4 | Repository RAG | ✅ 已完成 | 2026-06-02 | - |
 | M5 | FastAPI 接口 | ✅ 已完成 | 2026-06-02 | - |
 | M6 | LangGraph 工作流 | ✅ 已完成 | 2026-06-03 | - |
-| M7 | Dependency Agent | ⏳ 待开始 | - | - |
+| M7 | Dependency Agent | ✅ 已完成 | 2026-06-04 | - |
 | M8 | Architecture Agent | ⏳ 待开始 | - | - |
 | M9 | Learning Agent | ⏳ 待开始 | - | - |
 | M10 | Coordinator Agent | ⏳ 待开始 | - | - |
@@ -347,6 +347,83 @@ load_repo → index_code → retrieve_context → analyze → architecture → l
 760c64c feat: 完善 Milestone 6 — RAG 接入工作流 + 对话接口 + 错误路由
 3b58389 feat: 完成 Milestone 6 — LangGraph 工作流
 ```
+
+---
+
+## 九点五、Milestone 7 完成详情
+
+### 9.5.1 产出文件
+
+| 文件 | 路径 | 内容 |
+|------|------|------|
+| DependencyFileParser | `src/opensource_analyst/github/dependency_parser.py` | 依赖文件检测(8种格式) + 多语言解析(pyproject.toml/package.json/pom.xml/go.mod/Cargo.toml 等) |
+| DependencyAgent | `src/opensource_analyst/agents/dependency.py` | LLM 依赖分类(core/dev/build/test/peer) + 用途解读 |
+| DependencyPrompt | `src/opensource_analyst/prompts/dependency.py` | 依赖分析专用 prompt 模板 |
+| Dependency 模型增强 | `src/opensource_analyst/models/analysis.py` | 新增 version、category 字段 |
+| GraphState 扩展 | `src/opensource_analyst/graph/state.py` | 新增 parsed_dependencies、dependencies 字段 (9→11 字段) |
+| dependency_node | `src/opensource_analyst/graph/nodes.py` | 新增工作流节点 (6→7 节点) |
+| Workflow 更新 | `src/opensource_analyst/graph/workflow.py` | 插入 dependency 节点到 retrieve_context 和 analyze 之间 |
+| OVERVIEW_PROMPT 增强 | `src/opensource_analyst/prompts/overview.py` | 新增 {dependencies} 占位符，注入依赖分析数据 |
+| Analyzer 增强 | `src/opensource_analyst/agents/base.py` | analyze() 新增 dependencies 参数 |
+| 测试 | `tests/test_dependency.py` | 12 个测试(6 检测 + 3 解析 + 1 模型 + 2 集成 LLM) |
+
+### 9.5.2 测试结果
+
+```
+58/58 PASSED (M2-M7 累计)
+  M2:  9 tests (GitHub 客户端)
+  M3:  4 tests (Agent 分析)
+  M4:  6 tests (RAG 索引检索)
+  M5:  5 tests (API 接口)
+  M6: 16 tests (LangGraph 工作流)
+  chat: 6 tests (RAG 对话接口)
+  M7: 12 tests (依赖检测 + 解析 + Agent 分析)  ← 新增
+```
+
+### 9.5.3 工作流结构 (M7)
+
+```
+load_repo → index_code → retrieve_context → dependency → analyze → architecture → learning → END
+              ↓ error?        ↓ error?       ↓ error?    ↓ error?
+              END             END            END         END
+
+GitHub API    RAG 索引      RAG 检索      依赖解析     LLM 分析     占位         占位
+           (复用已有索引)                + LLM 分类   (注入依赖数据)
+```
+
+### 9.5.4 支持的依赖文件格式
+
+| 生态 | 文件 | 解析方式 | 分类粒度 |
+|------|------|---------|---------|
+| Python | pyproject.toml | TOML | dependencies / optional / build-system |
+| Python | setup.py | 正则 | install_requires |
+| Python | setup.cfg | configparser | install_requires |
+| Python | requirements.txt | 行解析 | core |
+| Node.js | package.json | JSON | dependencies / devDependencies / peerDependencies |
+| Java | pom.xml | XML regex | groupId:artifactId (含 test scope 识别) |
+| Java | build.gradle(.kts) | 正则 | implementation / testImplementation / compileOnly |
+| Go | go.mod | 行解析 | require 块 |
+| Rust | Cargo.toml | TOML | dependencies / dev-dependencies / build-dependencies |
+
+### 9.5.5 数据流
+
+```
+file_tree → DependencyFileParser.detect_dep_files() → [pyproject.toml, ...]
+  → fetch_and_parse() → [ParsedDependency(name, version, source, category)]
+  → DependencyAgent.analyze() → [Dependency(name, version, category, purpose)]
+  → GraphState.dependencies
+  → Analyzer.analyze(dependencies=...) → OVERVIEW_PROMPT 注入依赖数据
+  → AnalysisResult.tech_stack.key_dependencies (增强版)
+```
+
+### 9.5.6 技术要点
+
+- **多语言解析器**：一个 Parser 类覆盖 8 种文件格式，按文件名分发到静态方法
+- **PEP 508 拆分**：`_split_pep508()` 统一处理 `name>=version` 格式，同时支持 >=、==、~=、^ 等版本约束
+- **分类体系**：core(运行时) / dev(开发工具) / build(构建) / test(测试) / peer(对等依赖)
+- **LLM 增强**：依赖文件提取的硬数据 + LLM 语义理解，既准确又有深度
+- **错误短路保持**：dependency 节点完全遵循现有的 error→END 短路模式
+- **向后兼容**：`Analyzer.analyze(dependencies=None)` 默认值保证旧调用路径不破坏
 
 ---
 

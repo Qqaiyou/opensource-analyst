@@ -8,6 +8,7 @@ from opensource_analyst.graph.nodes import (
     load_repo_node,
     index_code_node,
     retrieve_context_node,
+    dependency_node,
     analyze_node,
     architecture_node,
     learning_node,
@@ -28,7 +29,7 @@ def build_workflow() -> CompiledStateGraph:
     调用 app.ainvoke({"repo_url": ...}) 即可执行全流程。
 
     工作流结构:
-        load_repo → index_code → retrieve_context → analyze → architecture → learning → END
+        load_repo → index_code → retrieve_context → dependency → analyze → architecture → learning → END
         每个节点后检查 error，有 error 则直接跳转到 END。
     """
     graph = StateGraph(GraphState)
@@ -36,6 +37,7 @@ def build_workflow() -> CompiledStateGraph:
     graph.add_node("load_repo", load_repo_node)
     graph.add_node("index_code", index_code_node)
     graph.add_node("retrieve_context", retrieve_context_node)
+    graph.add_node("dependency", dependency_node)
     graph.add_node("analyze", analyze_node)
     graph.add_node("architecture", architecture_node)
     graph.add_node("learning", learning_node)
@@ -47,7 +49,10 @@ def build_workflow() -> CompiledStateGraph:
         "index_code", _should_continue, {"continue": "retrieve_context", END: END}
     )
     graph.add_conditional_edges(
-        "retrieve_context", _should_continue, {"continue": "analyze", END: END}
+        "retrieve_context", _should_continue, {"continue": "dependency", END: END}
+    )
+    graph.add_conditional_edges(
+        "dependency", _should_continue, {"continue": "analyze", END: END}
     )
     graph.add_conditional_edges(
         "analyze", _should_continue, {"continue": "architecture", END: END}

@@ -11,10 +11,14 @@ OVERVIEW_PROMPT = """你是一个专业的开源项目分析专家。请基于�
 ## 语言统计
 {languages}
 
+## 依赖分析结果（从依赖文件中解析 + LLM 深度解读）
+{dependencies}
+
 ## 要求
 1. 仔细阅读 README，理解项目的目标、功能和适用场景
 2. 根据文件结构和语言统计，判断技术栈
-3. 严格按 JSON 格式输出（不要输出其他内容，不要用 markdown 代码块包裹）
+3. 参考「依赖分析结果」中的依赖数据来完善技术栈分析
+4. 严格按 JSON 格式输出（不要输出其他内容，不要用 markdown 代码块包裹）
 
 {{
   "overview": {{
@@ -27,7 +31,7 @@ OVERVIEW_PROMPT = """你是一个专业的开源项目分析专家。请基于�
     "languages": {{"语言名": "百分比或描述"}},
     "frameworks": ["使用的框架名称列表"],
     "key_dependencies": [
-      {{"name": "依赖名", "purpose": "在项目中的作用（中文）"}}
+      {{"name": "依赖名", "version": "版本号或 null", "category": "core/dev/build/test/peer", "purpose": "在项目中的作用（中文）"}}
     ]
   }}
 }}
