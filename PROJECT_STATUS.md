@@ -1,7 +1,7 @@
 # OpenSource Analyst - 项目进度跟踪
 
-> 最后更新：2026-06-04
-> 当前阶段：Milestone 8 ✅ 已完成 | 下一阶段：Milestone 9
+> 最后更新：2026-06-05
+> 当前阶段：Milestone 9 ✅ 已完成 | 下一阶段：Milestone 10
 
 ---
 
@@ -28,7 +28,7 @@
 | M6 | LangGraph 工作流 | ✅ 已完成 | 2026-06-03 | - |
 | M7 | Dependency Agent | ✅ 已完成 | 2026-06-04 | - |
 | M8 | Architecture Agent | ✅ 已完成 | 2026-06-04 | - |
-| M9 | Learning Agent | ⏳ 待开始 | - | - |
+| M9 | Learning Agent | ✅ 已完成 | 2026-06-05 | - |
 | M10 | Coordinator Agent | ⏳ 待开始 | - | - |
 | M11 | MCP 集成 | ⏳ 待开始 | - | - |
 | M12 | 高级功能 | ⏳ 待开始 | - | - |
@@ -488,6 +488,68 @@ file_tree → ArchitectureAnalyzer.group_modules() → {module_name: [files]}
 - **模块关系推断**：从 import_map 反向构建 {from_module → to_module} 的有向图
 - **LLM 介入点**：只做语义理解（模式识别、职责推断、总结），不做数据提取
 - **节点顺序优化**：dependency → architecture → analyze，使 analyze 能同时拿到依赖和架构两维数据
+
+---
+
+## 九点七、Milestone 9 完成详情
+
+### 9.7.1 产出文件
+
+| 文件 | 路径 | 内容 |
+|------|------|------|
+| LearningAgent | `src/opensource_analyst/agents/learning.py` | 综合全部分析结果的纯 LLM Agent |
+| LEARNING_PATH_PROMPT | `src/opensource_analyst/prompts/learning.py` | 学习路线 + 面试知识点 + 阅读建议 prompt 模板 |
+| 新增模型 | `src/opensource_analyst/models/analysis.py` | LearningStep / InterviewPoint / ReadingSuggestion / LearningPath 四个 Pydantic 模型 |
+| GraphState 增强 | `src/opensource_analyst/graph/state.py` | learning_path 类型从 Any → LearningPath \| None |
+| learning_node 实现 | `src/opensource_analyst/graph/nodes.py` | 占位节点 → 完整 5 步分析链路 |
+| API 输出线缆 | `src/opensource_analyst/api/analyze.py` | AnalysisResult 新增 learning_path 字段 + 线程修复 |
+| 工作流修复 | `src/opensource_analyst/graph/workflow.py` | 删除冗余的 architecture→learning 边 |
+| 测试 | `tests/test_learning.py` | 4 个测试 (2 模型 + 2 集成 LLM) |
+| 测试修复 | `tests/test_graph.py` | 更新 learning_node 占位测试 |
+
+### 9.7.2 测试结果
+
+```
+75/75 PASSED (M2-M9 累计)
+  M2:   9 tests (GitHub 客户端)
+  M3:   4 tests (Agent 分析)
+  M4:   6 tests (RAG 索引检索)
+  M5:   5 tests (API 接口)
+  M6:  17 tests (LangGraph 工作流)
+  M7:  12 tests (依赖检测 + 解析 + Agent 分析)
+  chat: 6 tests (RAG 对话接口)
+  M8:  12 tests (模块分组 + 入口识别 + AST + 模型 + Agent)
+  M9:   4 tests (模型 + LearningAgent 集成)  ← 新增
+```
+
+### 9.7.3 工作流结构 (M9)
+
+```
+load_repo → index_code → retrieve_context → dependency → architecture → analyze → learning → END
+              ↓ error?        ↓ error?       ↓ error?    ↓ error?      ↓ error?  ↓ error?
+              END             END            END         END           END       END
+
+GitHub API    RAG 索引      RAG 检索      依赖解析    架构分析       LLM 分析  学习路线
+           (复用已有索引)                + LLM 分类  (静态+LLM)    (注入全部  (综合生成)
+                                                                  上下文)
+```
+
+### 9.7.4 数据模型
+
+| 模型 | 字段 | 用途 |
+|------|------|------|
+| LearningStep | step_number, title, description, key_files, difficulty, estimated_hours | 单个学习步骤 |
+| InterviewPoint | topic, question, answer_hint, related_files | 面试知识点 |
+| ReadingSuggestion | file_path, why_important, reading_order, focus_points | 源码阅读建议 |
+| LearningPath | steps, prerequisites, estimated_days, interview_points, reading_suggestions | 顶层聚合容器 |
+
+### 9.7.5 技术要点
+
+- **纯 LLM Agent**：M9 不涉及静态代码解析，完全依靠 prompt engineering + 上下文注入
+- **信息综合**：注入 overview + tech_stack + dependencies + architecture 全部分析结果到 LLM
+- **容错设计**：每个输入字段有 fallback（"未提供..."），缺失任一分析结果也能生成基本路线
+- **线程修复**：`run_in_executor` 将同步 LLM 调用移到独立线程，避免阻塞事件循环
+- **工作流修复**：删除 workflow.py 中冗余的 `architecture → learning` 直接边，确保 analyze 先于 learning 执行
 
 ---
 

@@ -60,7 +60,6 @@ def build_workflow() -> CompiledStateGraph:
     graph.add_conditional_edges(
         "analyze", _should_continue, {"continue": "learning", END: END}
     )
-    graph.add_edge("architecture", "learning")
     graph.add_edge("learning", END)
 
     return graph.compile()

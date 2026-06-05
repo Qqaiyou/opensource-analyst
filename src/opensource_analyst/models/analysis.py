@@ -34,6 +34,7 @@ class AnalysisResult(BaseModel):
 
     overview: ProjectOverview
     tech_stack: TechStack
+    learning_path: LearningPath | None = None
 
 
 class ModuleInfo(BaseModel):
@@ -55,3 +56,42 @@ class ArchitectureResult(BaseModel):
     entry_file: str | None = None
     module_relations: list[dict]
     architecture_summary: str
+
+
+class LearningStep(BaseModel):
+    """单个学习步骤."""
+
+    step_number: int
+    title: str
+    description: str
+    key_files: list[str]
+    difficulty: str  # beginner / intermediate / advanced
+    estimated_hours: float
+
+
+class InterviewPoint(BaseModel):
+    """面试知识点."""
+
+    topic: str
+    question: str
+    answer_hint: str
+    related_files: list[str]
+
+
+class ReadingSuggestion(BaseModel):
+    """源码阅读建议."""
+
+    file_path: str
+    why_important: str
+    reading_order: int
+    focus_points: list[str]
+
+
+class LearningPath(BaseModel):
+    """学习路线完整输出 — M9 LearningAgent 产出."""
+
+    steps: list[LearningStep]
+    prerequisites: list[str]
+    estimated_days: int
+    interview_points: list[InterviewPoint]
+    reading_suggestions: list[ReadingSuggestion]

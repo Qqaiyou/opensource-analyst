@@ -70,11 +70,22 @@ def test_architecture_node_is_placeholder() -> None:
     assert "architecture" in result or "error" in result
 
 
-def test_learning_node_is_placeholder() -> None:
-    """learning_node 返回 None 占位。"""
+def test_learning_node_missing_repo_info() -> None:
+    """learning_node 在 repo_info 缺失时返回 error。"""
     state: GraphState = {"repo_url": "https://github.com/a/b"}
     result = learning_node(state, {})
-    assert result == {"learning_path": None}
+    assert "error" in result
+    assert "repo_info" in result["error"]
+
+
+def test_learning_node_skips_on_error() -> None:
+    """learning_node 在有 error 时返回空 dict。"""
+    state: GraphState = {
+        "repo_url": "https://github.com/a/b",
+        "error": "upstream failure",
+    }
+    result = learning_node(state, {})
+    assert result == {}
 
 
 def test_placeholder_nodes_skip_on_error() -> None:

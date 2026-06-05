@@ -14,6 +14,7 @@ from opensource_analyst.models.repo import RepoInfo
 from opensource_analyst.agents.base import Analyzer
 from opensource_analyst.agents.dependency import DependencyAgent
 from opensource_analyst.agents.architecture import ArchitectureAgent
+from opensource_analyst.agents.learning import LearningAgent
 from opensource_analyst.github.architecture_analyzer import ArchitectureAnalyzer
 from opensource_analyst.vectorstore.chroma import VectorStore
 from opensource_analyst.rag.indexer import CodeIndexer
@@ -244,7 +245,32 @@ async def architecture_node(
 def learning_node(
     state: GraphState, config: RunnableConfig | None = None
 ) -> dict[str, Any]:
-    """学习路线节点 — M9 实现，当前为占位。"""
+    """综合所有前置分析结果，由 LLM 生成结构化学习路线.
+
+    M9 LearningAgent：注入 overview + tech_stack + dependencies + architecture
+    到 LLM prompt，生成 LearningPath（学习步骤 + 面试知识点 + 源码阅读建议）。
+    """
     if state.get("error"):
         return {}
-    return {"learning_path": None}
+
+    try:
+        repo_info = state.get("repo_info")
+        if not repo_info:
+            return {"error": "learning_node: repo_info 缺失"}
+
+        overview = state.get("overview")
+        tech_stack = state.get("tech_stack")
+        dependencies = state.get("dependencies")
+        architecture = state.get("architecture")
+
+        agent = LearningAgent()
+        learning_path = agent.analyze(
+            repo_info=repo_info,
+            overview=overview,  # type: ignore[arg-type]
+            tech_stack=tech_stack,  # type: ignore[arg-type]
+            dependencies=dependencies,  # type: ignore[arg-type]
+            architecture=architecture,  # type: ignore[arg-type]
+        )
+        return {"learning_path": learning_path}
+    except Exception as e:
+        return {"error": str(e)}

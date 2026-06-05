@@ -1,12 +1,10 @@
 """LangGraph 工作流共享状态定义."""
 
-from typing import Any
-
 from typing_extensions import NotRequired, TypedDict
 
 from opensource_analyst.models.repo import RepoInfo
 from opensource_analyst.models.analysis import (
-    ProjectOverview, TechStack, Dependency, ArchitectureResult,
+    ProjectOverview, TechStack, Dependency, ArchitectureResult, LearningPath,
 )
 
 
@@ -25,5 +23,5 @@ class GraphState(TypedDict):
     overview: NotRequired[ProjectOverview | None]
     tech_stack: NotRequired[TechStack | None]
     architecture: NotRequired[ArchitectureResult | None]
-    learning_path: NotRequired[Any]
+    learning_path: NotRequired[LearningPath | None]
     error: NotRequired[str | None]

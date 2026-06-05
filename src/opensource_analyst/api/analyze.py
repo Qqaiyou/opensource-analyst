@@ -1,5 +1,6 @@
 """POST /analyze — 发起分析任务."""
 
+import asyncio
 from datetime import datetime, timezone
 from uuid import uuid4
 
@@ -45,12 +46,22 @@ async def start_analysis(req: AnalyzeRequest, bg: BackgroundTasks) -> TaskStatus
 
 
 async def _run_analysis(task_id: str, repo_url: str) -> None:
-    """通过 LangGraph 工作流执行分析流水线。"""
+    """将 LangGraph 工作流放到独立线程中执行，避免同步 LLM 调用阻塞事件循环。
+
+    analyze_node、learning_node 等节点内部使用同步 ChatOpenAI.invoke()，
+    耗时 30-60s，如果直接在主事件循环中执行会阻塞所有其他请求（包括 GET /task/{id}）。
+    """
+    loop = asyncio.get_running_loop()
+    await loop.run_in_executor(None, _run_workflow_sync, task_id, repo_url)
+
+
+def _run_workflow_sync(task_id: str, repo_url: str) -> None:
+    """在独立线程中同步执行完整的 LangGraph 工作流。"""
     try:
         _store[task_id]["status"] = "running"
 
         app = build_workflow()
-        state = await app.ainvoke({"repo_url": repo_url})
+        state = asyncio.run(app.ainvoke({"repo_url": repo_url}))
 
         if state.get("error"):
             raise RuntimeError(state["error"])
@@ -58,6 +69,7 @@ async def _run_analysis(task_id: str, repo_url: str) -> None:
         result = AnalysisResult(
             overview=state["overview"],
             tech_stack=state["tech_stack"],
+            learning_path=state.get("learning_path"),
         )
 
         _store[task_id]["status"] = "completed"
