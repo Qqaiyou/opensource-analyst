@@ -1,6 +1,7 @@
 """LangGraph 工作流节点 — 每个节点是一个独立的处理步骤."""
 
 import asyncio
+import logging
 from typing import Any
 
 from langgraph.types import RunnableConfig
@@ -15,10 +16,14 @@ from opensource_analyst.agents.base import Analyzer
 from opensource_analyst.agents.dependency import DependencyAgent
 from opensource_analyst.agents.architecture import ArchitectureAgent
 from opensource_analyst.agents.learning import LearningAgent
+from opensource_analyst.agents.registry import AgentRegistry, AgentSpec
+from opensource_analyst.agents.coordinator import CoordinatorAgent
 from opensource_analyst.github.architecture_analyzer import ArchitectureAnalyzer
 from opensource_analyst.vectorstore.chroma import VectorStore
 from opensource_analyst.rag.indexer import CodeIndexer
 from opensource_analyst.rag.retriever import CodeRetriever
+
+logger = logging.getLogger(__name__)
 
 
 async def load_repo_node(
@@ -272,5 +277,127 @@ def learning_node(
             architecture=architecture,  # type: ignore[arg-type]
         )
         return {"learning_path": learning_path}
+    except Exception as e:
+        return {"error": str(e)}
+
+
+# ── M10: Agent Registry 工厂 ──────────────────────────────
+
+# 模块级 registry 缓存，确保 coordinator_node 和 _should_loop_coordinator
+# 共享同一实例（避免重复创建 AgentSpec 和闭包 wrapper）
+_registry: AgentRegistry | None = None
+
+
+def _dependency_node_sync(state: GraphState) -> dict[str, Any]:
+    """在独立线程中同步执行 dependency_node（含阻塞 LLM 调用）."""
+    return asyncio.run(dependency_node(state))
+
+
+def _architecture_node_sync(state: GraphState) -> dict[str, Any]:
+    """在独立线程中同步执行 architecture_node（含阻塞 LLM 调用）."""
+    return asyncio.run(architecture_node(state))
+
+
+def build_analysis_registry() -> AgentRegistry:
+    """构建分析 Agent 注册表，定义各 Agent 的依赖关系和产出 key.
+
+    依赖关系决定了并行调度策略:
+        Round 1: dependency + architecture + analyze（三者互不依赖，并行）
+        Round 2: learning（依赖 overview/tech_stack/architecture）
+
+    所有包含阻塞 LLM 调用的 Agent 都通过 run_in_executor 包装，
+    确保 asyncio.gather 真正并行执行。
+    """
+    global _registry
+    if _registry is not None:
+        return _registry
+
+    _registry = AgentRegistry()
+
+    # Round 1 Agent: 依赖检测 — repo_info 已就绪，LLM 调用通过 run_in_executor 避免阻塞事件循环
+    async def _dependency_node_async(state: GraphState) -> dict[str, Any]:
+        loop = asyncio.get_running_loop()
+        return await loop.run_in_executor(None, _dependency_node_sync, state)
+
+    _registry.register(AgentSpec(
+        name="dependency",
+        description="依赖文件检测 + 解析 + LLM 分类",
+        dependencies=["repo_info"],
+        produces=["dependencies"],
+        run=_dependency_node_async,
+    ))
+
+    # Round 1 Agent: 架构分析 — repo_info 已就绪，LLM 调用通过 run_in_executor 避免阻塞事件循环
+    async def _architecture_node_async(state: GraphState) -> dict[str, Any]:
+        loop = asyncio.get_running_loop()
+        return await loop.run_in_executor(None, _architecture_node_sync, state)
+
+    _registry.register(AgentSpec(
+        name="architecture",
+        description="模块分组 + 入口识别 + AST import + LLM 架构报告",
+        dependencies=["repo_info"],
+        produces=["architecture"],
+        run=_architecture_node_async,
+    ))
+
+    # Round 1 Agent: 概览/技术栈分析 — 需要 repo_info + rag_context
+    def _analyze_node_sync(state: GraphState) -> dict[str, Any]:
+        return analyze_node(state)
+
+    async def _analyze_node_async(state: GraphState) -> dict[str, Any]:
+        loop = asyncio.get_running_loop()
+        return await loop.run_in_executor(None, _analyze_node_sync, state)
+
+    _registry.register(AgentSpec(
+        name="analyze",
+        description="项目概览 + 技术栈分析（LLM）",
+        dependencies=["repo_info", "rag_context"],
+        produces=["overview", "tech_stack"],
+        run=_analyze_node_async,
+    ))
+
+    # Round 2 Agent: 学习路线 — 需要 overview + tech_stack + architecture
+    def _learning_node_sync(state: GraphState) -> dict[str, Any]:
+        return learning_node(state)
+
+    async def _learning_node_async(state: GraphState) -> dict[str, Any]:
+        loop = asyncio.get_running_loop()
+        return await loop.run_in_executor(None, _learning_node_sync, state)
+
+    _registry.register(AgentSpec(
+        name="learning",
+        description="学习路线生成 + 面试知识点 + 源码阅读建议（LLM）",
+        dependencies=["overview", "tech_stack", "architecture"],
+        produces=["learning_path"],
+        run=_learning_node_async,
+    ))
+
+    return _registry
+
+
+# ── M10: Coordinator 调度节点 ──────────────────────────────
+
+
+async def coordinator_node(
+    state: GraphState, config: RunnableConfig | None = None
+) -> dict[str, Any]:
+    """Coordinator Agent — 多 Agent 并行调度 + 结果合并.
+
+    M10 Coordinator：找到所有就绪 Agent → parallel asyncio.gather → 合并结果。
+    循环执行直到 all_done（LangGraph condition edge 控制循环）。
+    Registry 通过 build_analysis_registry() 缓存，与 _should_loop_coordinator 共享同一实例。
+    """
+    if state.get("error"):
+        return {}
+
+    try:
+        repo_info = state.get("repo_info")
+        if not repo_info:
+            return {"error": "coordinator_node: repo_info 缺失"}
+
+        registry = build_analysis_registry()
+        coordinator = CoordinatorAgent(registry)
+        updates = await coordinator.run_round(state)
+        return updates
     except Exception as e:
         return {"error": str(e)}

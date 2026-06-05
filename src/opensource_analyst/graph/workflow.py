@@ -1,4 +1,7 @@
-"""LangGraph 工作流工厂 — 构建并编译 StateGraph."""
+"""LangGraph 工作流工厂 — 构建并编译 StateGraph.
+
+M10: Coordinator Agent 驱动的多 Agent 并行调度。
+"""
 
 from langgraph.graph import StateGraph, END
 from langgraph.graph.state import CompiledStateGraph
@@ -8,10 +11,8 @@ from opensource_analyst.graph.nodes import (
     load_repo_node,
     index_code_node,
     retrieve_context_node,
-    dependency_node,
-    analyze_node,
-    architecture_node,
-    learning_node,
+    coordinator_node,
+    build_analysis_registry,
 )
 
 
@@ -22,25 +23,32 @@ def _should_continue(state: GraphState) -> str:
     return "continue"
 
 
+def _should_loop_coordinator(state: GraphState) -> str:
+    """Coordinator 循环条件：如果所有 Agent 完成则 END，否则回到 coordinator。"""
+    if state.get("error"):
+        return END
+    registry = build_analysis_registry()
+    if registry.all_done(state):
+        return END
+    return "coordinator"
+
+
 def build_workflow() -> CompiledStateGraph:
-    """构建并编译分析工作流。
+    """构建并编译 M10 分析工作流。
 
     返回编译后的 StateGraph（LangGraph Runnable），
     调用 app.ainvoke({"repo_url": ...}) 即可执行全流程。
 
-    工作流结构:
-        load_repo → index_code → retrieve_context → dependency → architecture → analyze → learning → END
-        每个节点后检查 error，有 error 则直接跳转到 END。
+    M10 工作流结构:
+        load_repo → index_code → retrieve_context → coordinator ⇄ END
+          (pipeline 节点不变，分析 Agent 由 Coordinator 并行调度)
     """
     graph = StateGraph(GraphState)
 
     graph.add_node("load_repo", load_repo_node)
     graph.add_node("index_code", index_code_node)
     graph.add_node("retrieve_context", retrieve_context_node)
-    graph.add_node("dependency", dependency_node)
-    graph.add_node("analyze", analyze_node)
-    graph.add_node("architecture", architecture_node)
-    graph.add_node("learning", learning_node)
+    graph.add_node("coordinator", coordinator_node)
 
     graph.set_entry_point("load_repo")
 
@@ -49,18 +57,11 @@ def build_workflow() -> CompiledStateGraph:
         "index_code", _should_continue, {"continue": "retrieve_context", END: END}
     )
     graph.add_conditional_edges(
-        "retrieve_context", _should_continue, {"continue": "dependency", END: END}
+        "retrieve_context", _should_continue, {"continue": "coordinator", END: END}
     )
     graph.add_conditional_edges(
-        "dependency", _should_continue, {"continue": "architecture", END: END}
+        "coordinator", _should_loop_coordinator, {"coordinator": "coordinator", END: END}
     )
-    graph.add_conditional_edges(
-        "architecture", _should_continue, {"continue": "analyze", END: END}
-    )
-    graph.add_conditional_edges(
-        "analyze", _should_continue, {"continue": "learning", END: END}
-    )
-    graph.add_edge("learning", END)
 
     return graph.compile()
 

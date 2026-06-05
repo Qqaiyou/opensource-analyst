@@ -1,4 +1,4 @@
-"""LangGraph 工作流测试 — 节点 + 工作流 + 端到端."""
+"""LangGraph 工作流测试 — 节点 + 工作流 + 端到端 (M10 Coordinator)."""
 
 import asyncio
 import pytest
@@ -11,9 +11,11 @@ from opensource_analyst.graph.nodes import (
     analyze_node,
     architecture_node,
     learning_node,
+    coordinator_node,
 )
 from opensource_analyst.graph.workflow import build_workflow, export_workflow_mermaid
 from opensource_analyst.models.repo import RepoInfo
+from opensource_analyst.models.analysis import ArchitectureResult, LearningPath
 
 
 # ── 单元测试：GraphState ──────────────────────────────────────
@@ -219,3 +221,73 @@ async def test_workflow_full_tinydb() -> None:
     tech_stack = state.get("tech_stack")
     assert tech_stack is not None
     assert "Python" in tech_stack.languages or len(tech_stack.languages) > 0
+
+
+# ── M10 集成测试：Coordinator 驱动工作流 ────────────────────
+
+@pytest.mark.asyncio
+async def test_coordinator_node_with_repo_info() -> None:
+    """coordinator_node 在有 repo_info + rag_context 时调度分析 Agent。"""
+    repo_info = RepoInfo(
+        owner="test", repo="hello",
+        readme="A simple hello world project.",
+        file_tree=["main.py", "utils.py", "README.md"],
+        languages={"Python": 500},
+    )
+    state: GraphState = {
+        "repo_url": "https://github.com/test/hello",
+        "repo_info": repo_info,
+        "rag_context": "A simple hello world project context.",
+    }
+    result = await coordinator_node(state)
+
+    # Round 1: 应产出 dependency/architecture/analyze 的结果
+    # 由于是真实 LLM 调用，检查至少有一个产出
+    has_any = any(k in result for k in ["dependencies", "architecture", "overview", "tech_stack"])
+    assert has_any, f"coordinator_node should produce some results, got: {result}"
+
+
+@pytest.mark.slow
+@pytest.mark.asyncio
+async def test_workflow_full_tinydb_m10() -> None:
+    """对 TinyDB 执行 M10 Coordinator 驱动工作流，验证全部产出。"""
+    app = build_workflow()
+    state = await app.ainvoke(
+        {"repo_url": "https://github.com/msiemens/tinydb"}
+    )
+
+    assert state.get("error") is None, f"工作流出错: {state.get('error')}"
+
+    # 管道节点
+    assert state.get("repo_info") is not None
+    assert state.get("rag_context") is not None
+
+    # Round 1 并行 Agent
+    overview = state.get("overview")
+    assert overview is not None
+    assert overview.name is not None
+
+    tech_stack = state.get("tech_stack")
+    assert tech_stack is not None
+
+    architecture = state.get("architecture")
+    assert architecture is not None
+    assert isinstance(architecture, ArchitectureResult)
+
+    dependencies = state.get("dependencies")
+    assert dependencies is not None
+    assert isinstance(dependencies, list)
+
+    # Round 2 Agent
+    learning_path = state.get("learning_path")
+    assert learning_path is not None
+    assert isinstance(learning_path, LearningPath)
+    assert len(learning_path.steps) >= 3
+    assert learning_path.estimated_days > 0
+
+
+@pytest.mark.asyncio
+async def test_workflow_mermaid_includes_coordinator() -> None:
+    """Mermaid 字符串应包含 coordinator 节点。"""
+    mermaid = export_workflow_mermaid()
+    assert "coordinator" in mermaid.lower()

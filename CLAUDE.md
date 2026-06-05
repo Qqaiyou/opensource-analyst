@@ -57,11 +57,13 @@ agents/          — Expert Agent implementations (one per file)
   ├── base.py           — BaseAgent (LLM wrapper) + Analyzer
   ├── dependency.py     — DependencyAgent (M7: dep file parsing + LLM classification)
   ├── architecture.py   — ArchitectureAgent (M8: module grouping + import analysis + LLM report)
-  └── learning.py       — LearningAgent (M9: synthesis of all analyses + LLM learning path)
-graph/           — LangGraph StateGraph definition, nodes, edges (M6)
+  ├── learning.py       — LearningAgent (M9: synthesis of all analyses + LLM learning path)
+  ├── registry.py       — AgentRegistry + AgentSpec (M10: Agent registration + ready/done detection)
+  └── coordinator.py    — CoordinatorAgent (M10: parallel dispatch via asyncio.gather + fault isolation)
+graph/           — LangGraph StateGraph definition, nodes, edges (M6, M10 refactored)
   ├── state.py   — GraphState (11 fields: repo_url, repo_info, code_indexed, rag_context, parsed_dependencies, dependencies, overview, tech_stack, architecture, learning_path, error)
-  ├── nodes.py   — 7 nodes (load_repo / index_code / retrieve_context / dependency / analyze / architecture / learning)
-  └── workflow.py — build_workflow() + export_workflow_mermaid() + conditional error routing
+  ├── nodes.py   — 8 nodes (load_repo / index_code / retrieve_context / dependency / analyze / architecture / learning / coordinator) + build_analysis_registry()
+  └── workflow.py — build_workflow() + export_workflow_mermaid() + coordinator conditional loop
 rag/             — Repository RAG retrieval logic (M4)
   ├── indexer.py  — CodeIndexer (file filter → download → chunk → embed → store)
   └── retriever.py — CodeRetriever (semantic search → context assembly)
@@ -108,9 +110,10 @@ Temperature: 0.3
 ### Agent Pipeline (current → future)
 
 ```
-[Current — M9]
-POST /analyze → BackgroundTasks → LangGraph Workflow (7 nodes) → AnalysisResult
-  load_repo → index_code → retrieve_context → dependency → architecture → analyze → learning
+[Current — M10]
+POST /analyze → BackgroundTasks → LangGraph Workflow → AnalysisResult
+  Pipeline: load_repo → index_code → retrieve_context → coordinator ⇄ END
+  Coordinator: asyncio.gather(dependency, architecture, analyze) → learning
 GET /task/{id} → status polling → GET /task/{id}/result
 POST /chat → RAG 检索 + DeepSeek → 答案 + 代码引用来源
 
@@ -127,16 +130,21 @@ POST /chat → RAG 检索 + DeepSeek → 答案 + 代码引用来源
 ```
 GraphState (11 fields: repo_url, repo_info, code_indexed, rag_context, parsed_dependencies, dependencies, overview, tech_stack, architecture, learning_path, error)
 
-load_repo → index_code → retrieve_context → dependency → architecture → analyze → learning → END
-              ↓ error?        ↓ error?       ↓ error?    ↓ error?      ↓ error?
-              END             END            END         END           END
+load_repo → index_code → retrieve_context → coordinator ⇄ END
+              ↓ error?        ↓ error?       ↓ error?
+              END             END            END
+
+coordinator 内部并行调度:
+  Round 1: asyncio.gather(dependency, architecture, analyze)
+  Round 2: learning
+  Round 3: all_done → END
+- AgentRegistry 声明式注册 dependencies/produces → 自动发现就绪 Agent 并行执行
+- 单 Agent 失败不阻断其他 Agent（独立容错）
 ```
 
 - index_code: ChromaDB 已有数据则跳过，避免重复索引
 - retrieve_context: 用 README 前 500 字符做语义检索，返回 top-10 代码片段
-- dependency: 检测依赖文件(8种) → 下载→ 解析 → LLM 分类（core/dev/build/test/peer）+ 用途说明
-- architecture: 模块分组 → 入口识别 → AST import 分析 → LLM 架构报告
-- analyze: 注入 RAG 上下文 + 依赖分析 + 架构分析结果到 LLM prompt，增强分析深度
+- coordinator: AgentRegistry.get_ready(state) → asyncio.gather 并行调度 → 合并结果
 
 ## Development Rules
 

@@ -1,7 +1,7 @@
 # OpenSource Analyst - 项目进度跟踪
 
 > 最后更新：2026-06-05
-> 当前阶段：Milestone 9 ✅ 已完成 | 下一阶段：Milestone 10
+> 当前阶段：Milestone 10 ✅ 已完成 | 下一阶段：Milestone 11
 
 ---
 
@@ -29,7 +29,7 @@
 | M7 | Dependency Agent | ✅ 已完成 | 2026-06-04 | - |
 | M8 | Architecture Agent | ✅ 已完成 | 2026-06-04 | - |
 | M9 | Learning Agent | ✅ 已完成 | 2026-06-05 | - |
-| M10 | Coordinator Agent | ⏳ 待开始 | - | - |
+| M10 | Coordinator Agent | ✅ 已完成 | 2026-06-05 | - |
 | M11 | MCP 集成 | ⏳ 待开始 | - | - |
 | M12 | 高级功能 | ⏳ 待开始 | - | - |
 
@@ -550,6 +550,79 @@ GitHub API    RAG 索引      RAG 检索      依赖解析    架构分析      
 - **容错设计**：每个输入字段有 fallback（"未提供..."），缺失任一分析结果也能生成基本路线
 - **线程修复**：`run_in_executor` 将同步 LLM 调用移到独立线程，避免阻塞事件循环
 - **工作流修复**：删除 workflow.py 中冗余的 `architecture → learning` 直接边，确保 analyze 先于 learning 执行
+
+---
+
+## 九点八、Milestone 10 完成详情
+
+### 9.8.1 产出文件
+
+| 文件 | 路径 | 内容 |
+|------|------|------|
+| AgentRegistry | `src/opensource_analyst/agents/registry.py` | AgentSpec 数据类 + AgentRegistry 注册表（注册、就绪判断、完成判断） |
+| CoordinatorAgent | `src/opensource_analyst/agents/coordinator.py` | 调度引擎（asyncio.gather 并行执行 + 独立容错 + logging） |
+| build_analysis_registry | `src/opensource_analyst/graph/nodes.py` | 注册 4 个分析 Agent 的工厂函数（含模块级缓存） |
+| coordinator_node | `src/opensource_analyst/graph/nodes.py` | 新增调度节点（调用 CoordinatorAgent.run_round） |
+| Workflow 重构 | `src/opensource_analyst/graph/workflow.py` | 从 7 节点串行边 → 4 节点 + coordinator 循环边 |
+| main.py 修改 | `src/opensource_analyst/main.py` | 添加 `logging.basicConfig(level=INFO)` |
+| 测试 | `tests/test_coordinator.py` | 12 个测试（6 registry + 4 coordinator + 2 factory） |
+| 测试更新 | `tests/test_graph.py` | 3 个 M10 测试（coordinator_node + tinydb_m10 + mermaid） |
+
+### 9.8.2 测试结果
+
+```
+91/91 PASSED
+  M2:   9 tests (GitHub 客户端)
+  M3:   4 tests (Agent 分析)
+  M4:   6 tests (RAG 索引检索)
+  M5:   5 tests (API 接口)
+  M6:  17 tests (LangGraph 工作流)
+  M7:  12 tests (依赖检测 + 解析 + Agent 分析)
+  chat: 6 tests (RAG 对话接口)
+  M8:  12 tests (模块分组 + 入口识别 + AST + 模型 + Agent)
+  M9:   4 tests (模型 + LearningAgent 集成)
+  M10: 16 tests (registry + coordinator + workflow 集成)  ← 新增
+```
+
+### 9.8.3 工作流结构 (M10)
+
+```
+load_repo → index_code → retrieve_context → coordinator ⇄ END
+  (pipeline 固定管道)                         ↑  ↓
+                                          (loop 直到全部完成)
+
+coordinator 内部并行调度:
+  Round 1: asyncio.gather(dependency, architecture, analyze)
+  Round 2: asyncio.gather(learning)
+  Round 3: all_done → END
+```
+
+### 9.8.4 核心架构决策
+
+- **AgentRegistry**：声明式注册 — 每个 Agent 声明 `dependencies`（需要哪些 state key）和 `produces`（产出哪些 state key）
+- **CoordinatorAgent.run_round()**：读取 registry → `get_ready(state)` → `asyncio.gather` 并行执行 → 合并结果
+- **调度 DAG**：
+  - Round 1: dependency / architecture / analyze 三者 `repo_info` 就绪即可并行
+  - Round 2: learning 需要 overview + tech_stack + architecture 全部就绪
+- **所有阻塞 LLM 调用均通过 `loop.run_in_executor(None, ...)` 包装**，确保 asyncio.gather 真正并行
+- **Registry 模块级缓存**：`build_analysis_registry()` 使用 global 缓存，确保 coordinator_node 和 _should_loop_coordinator 共享同一实例
+
+### 9.8.5 容错设计
+
+| 机制 | 实现 |
+|------|------|
+| Agent 级隔离 | `asyncio.gather(return_exceptions=True)` — 单一 Agent 异常记录到 `{name}_error` key，不抛异常 |
+| 循环终止保护 | `_should_loop_coordinator` 检查 `all_done` → 即使有 Agent 失败最终也会退出 |
+| Fallback 链 | learning_node 内部对缺失输入有 "未提供..." fallback，M9 已有 |
+| Error 短路保持 | pipeline 阶段 `_should_continue` 不变，load_repo 失败仍然 END |
+
+### 9.8.6 技术要点
+
+- **并行调度**：Coordinator 不做具体分析，只管理 Agent 的生命周期 — 找到就绪 → 并行执行 → 收集结果
+- **条件循边**：`_should_loop_coordinator` 条件路由实现 `coordinator → coordinator` 自循环
+- **API 不变**：POST /analyze 请求/响应、AnalysisResult 数据结构完全不变
+- **日志可见**：`logging.basicConfig(level=INFO)` 让 Coordinator 调度信息在终端输出
+- **测试可见**：集成测试含 `print()` 输出 Round 1/2/3 的完整中间结果
 
 ---
 
