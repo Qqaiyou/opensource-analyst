@@ -759,4 +759,198 @@ uv run python -c "from opensource_analyst.graph.workflow import export_workflow_
 
 ---
 
-*笔记结束。最后更新：2026-06-04*
+## Milestone 10 — Coordinator Agent
+
+### Step 1: 概念讲解
+
+- **Coordinator Agent（协调者 Agent）**：不自己做具体分析，而是管理其他 Agent 的工作——任务拆分、调度、结果汇总。类比为"项目经理"，不写代码但分配任务给工程师
+- **Agent Registry（Agent 注册表）**：声明式注册机制，每个 Agent 声明自己的"前置条件"（dependencies）和"产出"（produces），Registry 根据当前 state 自动判断哪些 Agent 可以执行
+- **并行调度（Parallel Dispatch）**：找到所有 dependencies 已满足的 Agent，用 `asyncio.gather` 同时执行。与串行调度相比，耗时从"各 Agent 之和"降为"最慢 Agent 的耗时"
+- **DAG 调度（有向无环图调度）**：分析 Agent 之间的依赖关系构成 DAG——dependency/architecture/analyze 互不依赖（可并行），learning 依赖它们的结果（必须等它们完成）。Coordinator 的核心职责就是识别这个拓扑结构并正确调度
+- **条件循环边（Conditional Self-Loop）**：LangGraph 的 `add_conditional_edges("coordinator", fn, {"coordinator": "coordinator", END: END})` 实现自循环——coordinator 完成后检查 `all_done`，未完成则回到 coordinator 再跑一轮
+- **Agent 级故障隔离**：`asyncio.gather(return_exceptions=True)` 确保单个 Agent 抛异常不阻断同批次其他 Agent。失败 Agent 的异常记录到 `state["{name}_error"]`，后续 Agent 仍可正常运行
+
+### Step 2: 在项目中的作用
+
+**为什么需要 M10**：M6-M9 的工作流是固定串行流水线 `load_repo → index_code → retrieve_context → dependency → architecture → analyze → learning`，存在三个问题：
+
+| 问题 | M10 解法 |
+|------|----------|
+| **浪费并行能力**：dependency、architecture、analyze 三者拿到 repo_info 后就可以同时跑，串行等待浪费 60-90s | Coordinator 识别 DAG 依赖，无依赖的子任务并行执行 |
+| **无容错隔离**：某个节点出错走 error→END 短路，后面所有节点全部遭殃 | 单 Agent 失败记录到 `{name}_error`，不影响同批次和后续 Agent |
+| **扩展困难**：每加一个新 Agent 就要在 workflow.py 里插节点、改边 | 新 Agent 只需注册到 Registry，Coordinator 自动知道怎么调度 |
+
+**输入**：`repo_info` + `rag_context`（pipeline 阶段产出）
+**输出**：所有分析 Agent 的产出（dependencies / architecture / overview / tech_stack / learning_path），API 接口和 AnalysisResult 结构不变
+
+### Step 3: 设计方案
+
+#### Agent 依赖关系 DAG
+
+```
+repo_info ✓ + rag_context ✓
+     │            │              │
+     ▼            ▼              ▼
+ dependency   architecture    analyze        ← Round 1: 并行
+     │            │              │
+     │            └──────┬───────┘
+     │                   ▼
+     │               learning                  ← Round 2
+     │                   │
+     └───────────────────┘
+                         ▼
+                      all_done → END            ← Round 3
+```
+
+#### 模块结构
+
+```
+新增 3 文件 + 修改 5 文件 = 8 个文件变更
+```
+
+| 文件 | 类型 | 说明 |
+|------|------|------|
+| `agents/registry.py` | 新增 | AgentSpec dataclass + AgentRegistry 类（register / get_ready / all_done） |
+| `agents/coordinator.py` | 新增 | CoordinatorAgent 类（run_round 并行调度 + logging） |
+| `tests/test_coordinator.py` | 新增 | 12 个测试（6 registry + 4 coordinator + 2 factory） |
+| `graph/nodes.py` | 修改 | 新增 build_analysis_registry() 工厂 + coordinator_node + 4 个 sync wrapper + 模块级缓存 |
+| `graph/workflow.py` | 修改 | 从 7 节点串行边 → 4 pipeline 节点 + coordinator 条件循环边 + _should_loop_coordinator |
+| `main.py` | 修改 | 添加 `logging.basicConfig(level=INFO)` |
+| `tests/test_graph.py` | 修改 | 3 个 M10 测试 + imports 更新 |
+| `CLAUDE.md` | 修改 | 更新架构图和 Agent Pipeline |
+| `PROJECT_STATUS.md` | 修改 | M10 完成记录 |
+
+#### AgentRegistry 设计
+
+```python
+@dataclass
+class AgentSpec:
+    name: str            # "dependency"
+    description: str     # "依赖文件检测 + 解析 + LLM 分类"
+    dependencies: list[str]  # 需要哪些 state key: ["repo_info"]
+    produces: list[str]      # 产出哪些 state key: ["dependencies"]
+    run: Callable[[GraphState], Awaitable[dict]]  # async 执行函数
+
+class AgentRegistry:
+    def register(self, spec: AgentSpec) -> None
+    def get_ready(self, state: GraphState) -> list[AgentSpec]
+        # deps 满足 + 尚未产出 → 就绪
+    def all_done(self, state: GraphState) -> bool
+        # get_ready 返回空 → True
+```
+
+注册 4 个分析 Agent：
+
+| Agent | dependencies | produces | run_in_executor? |
+|-------|-------------|----------|------------------|
+| dependency | repo_info | dependencies | ✅（含阻塞 LLM 调用） |
+| architecture | repo_info | architecture | ✅（含阻塞 LLM 调用） |
+| analyze | repo_info, rag_context | overview, tech_stack | ✅（同步 LLM 调用） |
+| learning | overview, tech_stack, architecture | learning_path | ✅（同步 LLM 调用） |
+
+#### CoordinatorAgent 设计
+
+```python
+class CoordinatorAgent:
+    registry: AgentRegistry
+
+    async def run_round(state) -> dict:
+        ready = registry.get_ready(state)
+        # asyncio.gather 并行执行 + return_exceptions=True
+        # 单个 Agent 异常 → {name}_error = str(exception)
+        # 合并结果返回
+    def all_done(state) -> bool:
+        return registry.all_done(state)
+```
+
+#### 工作流结构 (M10 vs M9)
+
+```
+M9 (串行):
+  load_repo → index_code → retrieve_context → dependency → architecture → analyze → learning → END
+
+M10 (并行):
+  load_repo → index_code → retrieve_context → coordinator ⇄ END
+    (pipeline 固定管道)                           ↑  ↓
+                                              (loop 直到 all_done)
+
+  coordinator 内部:
+    Round 1: asyncio.gather(dependency, architecture, analyze)
+    Round 2: asyncio.gather(learning)
+    Round 3: all_done → END
+```
+
+### Step 4: 代码产出
+
+| 文件 | 变更类型 | 说明 |
+|------|----------|------|
+| `src/opensource_analyst/agents/registry.py` | 新建 | ~72 行：AgentSpec dataclass + AgentRegistry 类（register/get_ready/all_done/deps_satisfied/already_produced） |
+| `src/opensource_analyst/agents/coordinator.py` | 新建 | ~82 行：CoordinatorAgent 类（run_round 并行调度 + asyncio.gather return_exceptions + logging.info 日志） |
+| `src/opensource_analyst/graph/nodes.py` | 修改 | +127 行：4 个 sync wrapper（_dependency_node_sync/_architecture_node_sync）+ build_analysis_registry() 工厂（模块级缓存）+ coordinator_node |
+| `src/opensource_analyst/graph/workflow.py` | 修改 | 重构：4 pipeline 节点 + coordinator 条件循环边 + _should_loop_coordinator + 删除冗余 AgentRegistry/CoordinatorAgent 导入 |
+| `src/opensource_analyst/main.py` | 修改 | +8 行：`logging.basicConfig(level=INFO, format=...)` 让调度日志在终端可见 |
+| `tests/test_coordinator.py` | 新建 | ~461 行：12 个测试（6 registry + 4 coordinator + 2 factory）+ 集成测试含详细 print 输出中间过程 |
+| `tests/test_graph.py` | 修改 | +74 行：3 个 M10 测试（coordinator_node_with_repo_info / tinydb_m10 / mermaid_includes_coordinator） |
+| `CLAUDE.md` | 修改 | 更新 agents/ 和 graph/ 目录结构，Agent Pipeline 描述从 M9→M10 |
+| `PROJECT_STATUS.md` | 修改 | +77 行：M10 完成详情（产出文件 / 测试结果 / 工作流结构 / 架构决策 / 容错设计 / 技术要点） |
+
+**关键技术点：**
+
+- **Registry 模块级缓存**：`build_analysis_registry()` 使用 `global _registry` 缓存，第一次调用创建，后续返回同一实例。coordinator_node 和 _should_loop_coordinator 共享同一个 Registry，避免重复创建 4 个 AgentSpec + 4 个闭包 wrapper
+- **所有阻塞 LLM 调用通过 `loop.run_in_executor(None, ...)` 包装**：dependency_node 和 architecture_node 虽然原本是 async def，但内部调用 Agent.analyze() → ChatOpenAI.invoke()（同步阻塞）。`asyncio.run(dependency_node(state))` 在独立线程中运行，然后 `await loop.run_in_executor(None, sync_fn, state)` 回到主事件循环等待结果。4 个 Agent 全部走这个模式，确保 asyncio.gather 真正并行
+- **容错三层设计**：① Agent 级 — `asyncio.gather(return_exceptions=True)` 捕获异常写入 `{name}_error` key；② 循环级 — `_should_loop_coordinator` 在 all_done 为 True 时退出，即使有 Agent 失败也不会死循环；③ Pipeline 级 — `_should_continue` 不变，load_repo 失败仍然短路到 END
+- **API 透明升级**：POST /analyze 请求/响应格式完全不变，AnalysisResult 结构完全不变。`_run_analysis` 代码零改动。对外部调用方透明
+- **logger.info 调度日志**：Coordinator 每轮调度输出 `dispatching N agent(s) in parallel — agent1, agent2` 和 `round complete — N succeeded, M failed` 日志
+- **测试友好**：集成测试 `test_coordinator_runs_all_agents` 包含详细 print 输出，用 `pytest -v -s --log-cli-level=INFO` 运行可以看到完整的 Round 1/2/3 中间结果
+
+### Step 5: 验收标准
+
+```bash
+# 跑 M10 单元测试（不含慢速集成）
+uv run pytest tests/test_coordinator.py tests/test_graph.py -v -k "not slow"
+# 预期：31 passed
+#   - 12 coordinator（6 registry + 4 coordinator + 2 factory）
+#   - 19 graph（M6-M10 各阶段）
+
+# 跑 M10 集成测试（含完整中间过程输出）
+uv run pytest tests/test_coordinator.py::test_coordinator_runs_all_agents -v -s --log-cli-level=INFO
+# 预期输出：
+#   [已注册 Agent] ['dependency', 'architecture', 'analyze', 'learning']
+#   Round 1: 并行执行 dependency + architecture + analyze
+#   Coordinator: dispatching 3 agent(s) in parallel — dependency, architecture, analyze
+#   Round 1 产出 keys: [parsed_dependencies, dependencies, architecture, overview, tech_stack]
+#   Round 2: learning
+#   Coordinator: dispatching 1 agent(s) in parallel — learning
+#   Round 3: 全部完成!
+#   PASSED
+
+# 全量回归测试
+uv run pytest -v
+# 预期：91/91 passed
+#   M2: 9 + M3: 4 + M4: 6 + M5: 5 + M6: 17 + chat: 6 + M7: 12 + M8: 12 + M9: 4 + M10: 16
+
+# 验证工作流结构
+uv run python -c "from opensource_analyst.graph.workflow import export_workflow_mermaid; print(export_workflow_mermaid())"
+# 预期：Mermaid 图中出现 coordinator 节点和自循环边
+
+# API 端到端
+curl -X POST http://127.0.0.1:8000/analyze \
+  -H "Content-Type: application/json" \
+  -d '{"repo_url":"https://github.com/msiemens/tinydb"}'
+# 预期：202 task_id → 轮询 → completed → result 含 overview + tech_stack + learning_path
+# 终端日志输出：Coordinator: dispatching 3 agent(s) in parallel — dependency, architecture, analyze
+```
+
+### M10 vs M9 关键差异
+
+| 维度 | M9 | M10 |
+|------|-----|-----|
+| 执行模式 | 固定 7 步串行 | 4 步 pipeline + 条件循环 |
+| 分析 Agent 调度 | 硬编码顺序 | Registry 声明式 + 自动并行 |
+| dependency/architecture/analyze 耗时 | ~90s（串行） | ~30s（并行最慢的那个） |
+| 单 Agent 失败影响 | 后续全部短路 | 只影响该 Agent 自身 |
+| 添加新 Agent | 改 nodes + workflow + state | registry.register() 即可 |
+
+---
+
+*笔记结束。最后更新：2026-06-05*
