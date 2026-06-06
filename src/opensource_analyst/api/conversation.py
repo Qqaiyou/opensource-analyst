@@ -134,6 +134,8 @@ async def send_message(conv_id: str, req: ConversationMessageRequest) -> Convers
         elif m["role"] == "assistant":
             history_messages.append(AIMessage(content=m["content"]))
 
+    logger.info("会话 %s: 历史消息 %d 条, 当前消息: %s", conv_id, len(history_messages), req.message[:50])
+
     # 追加当前用户消息
     history_messages.append(HumanMessage(content=req.message))
 
