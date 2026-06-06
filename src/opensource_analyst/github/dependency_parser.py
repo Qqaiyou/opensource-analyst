@@ -2,11 +2,16 @@
 
 import json
 import re
-import tomllib
 from typing import Optional
 
 import httpx
 from pydantic import BaseModel
+
+# Python 3.10 兼容：tomllib 是 3.11+ 标准库，3.10 用 tomli 替代
+try:
+    import tomllib
+except ModuleNotFoundError:  # pragma: no cover
+    import tomli as tomllib  # type: ignore[no-redef]
 
 
 class ParsedDependency(BaseModel):

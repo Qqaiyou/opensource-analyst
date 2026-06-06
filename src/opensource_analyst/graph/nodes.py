@@ -18,10 +18,13 @@ from opensource_analyst.agents.architecture import ArchitectureAgent
 from opensource_analyst.agents.learning import LearningAgent
 from opensource_analyst.agents.registry import AgentRegistry, AgentSpec
 from opensource_analyst.agents.coordinator import CoordinatorAgent
+from opensource_analyst.agents.interview import InterviewAgent
+from opensource_analyst.agents.reflection import ReflectionAgent
 from opensource_analyst.github.architecture_analyzer import ArchitectureAnalyzer
 from opensource_analyst.vectorstore.chroma import VectorStore
 from opensource_analyst.rag.indexer import CodeIndexer
 from opensource_analyst.rag.retriever import CodeRetriever
+from opensource_analyst.analysis.mermaid import build_all_mermaid
 
 logger = logging.getLogger(__name__)
 
@@ -242,7 +245,7 @@ async def architecture_node(
             dependencies=dependencies,  # type: ignore[arg-type]
         )
 
-        return {"architecture": result}
+        return {"architecture": result, "import_map": import_map}
     except Exception as e:
         return {"error": str(e)}
 
@@ -281,6 +284,101 @@ def learning_node(
         return {"error": str(e)}
 
 
+# ── M12: Mermaid 图生成节点 ──────────────────────────
+
+
+def mermaid_node(
+    state: GraphState, config: RunnableConfig | None = None
+) -> dict[str, Any]:
+    """从架构/技术栈/依赖分析数据生成 Mermaid 可视化图.
+
+    纯静态计算，无 LLM 调用。
+    必须在 dependency_node + architecture_node + analyze_node 之后运行。
+    """
+    if state.get("error"):
+        return {}
+
+    try:
+        architecture = state.get("architecture")
+        import_map = state.get("import_map")
+        tech_stack = state.get("tech_stack")
+        dependencies = state.get("dependencies")
+
+        diagrams = build_all_mermaid(
+            architecture=architecture,
+            import_map=import_map,
+            tech_stack=tech_stack,
+            dependencies=dependencies,
+        )
+        return {"mermaid_diagrams": diagrams}
+    except Exception as e:
+        return {"error": str(e)}
+
+
+# ── M12: Interview 节点 ──────────────────────────────
+
+
+def interview_node(
+    state: GraphState, config: RunnableConfig | None = None
+) -> dict[str, Any]:
+    """Interview Agent — 生成深度面试题集。
+
+    需要 overview + tech_stack + architecture 等全部分析结果。
+    """
+    if state.get("error"):
+        return {}
+
+    try:
+        repo_info = state.get("repo_info")
+        if not repo_info:
+            return {"error": "interview_node: repo_info 缺失"}
+
+        agent = InterviewAgent()
+        result = agent.analyze(
+            repo_info=repo_info,
+            overview=state.get("overview"),
+            tech_stack=state.get("tech_stack"),
+            dependencies=state.get("dependencies"),
+            architecture=state.get("architecture"),
+            rag_context=state.get("rag_context"),
+        )
+        return {"interview_result": result}
+    except Exception as e:
+        return {"error": str(e)}
+
+
+# ── M12: Reflection 节点 ─────────────────────────────
+
+
+def reflection_node(
+    state: GraphState, config: RunnableConfig | None = None
+) -> dict[str, Any]:
+    """Reflection Agent — 对所有分析结果做质量检查.
+
+    在所有分析完成后运行，产出质量评分+问题列表。
+    """
+    if state.get("error"):
+        return {}
+
+    try:
+        repo_info = state.get("repo_info")
+        if not repo_info:
+            return {"error": "reflection_node: repo_info 缺失"}
+
+        agent = ReflectionAgent()
+        result = agent.check(
+            repo_info=repo_info,
+            overview=state.get("overview"),
+            tech_stack=state.get("tech_stack"),
+            architecture=state.get("architecture"),
+            learning_path=state.get("learning_path"),
+            mermaid_diagrams=state.get("mermaid_diagrams"),
+        )
+        return {"reflection": result}
+    except Exception as e:
+        return {"error": str(e)}
+
+
 # ── M10: Agent Registry 工厂 ──────────────────────────────
 
 # 模块级 registry 缓存，确保 coordinator_node 和 _should_loop_coordinator
@@ -304,6 +402,10 @@ def build_analysis_registry() -> AgentRegistry:
     依赖关系决定了并行调度策略:
         Round 1: dependency + architecture + analyze（三者互不依赖，并行）
         Round 2: learning（依赖 overview/tech_stack/architecture）
+        Round 3: mermaid（纯静态，依赖 architecture + tech_stack）
+        Round 4: interview（依赖 overview + tech_stack + architecture + rag_context）
+        Round 5: reflection（全部就绪后做质量检查）
+        Round 6: all_done → END
 
     所有包含阻塞 LLM 调用的 Agent 都通过 run_in_executor 包装，
     确保 asyncio.gather 真正并行执行。
@@ -313,6 +415,8 @@ def build_analysis_registry() -> AgentRegistry:
         return _registry
 
     _registry = AgentRegistry()
+
+    # ── Round 1 Agent ──────────────────────────────────
 
     # Round 1 Agent: 依赖检测 — repo_info 已就绪，LLM 调用通过 run_in_executor 避免阻塞事件循环
     async def _dependency_node_async(state: GraphState) -> dict[str, Any]:
@@ -356,6 +460,8 @@ def build_analysis_registry() -> AgentRegistry:
         run=_analyze_node_async,
     ))
 
+    # ── Round 2 Agent ──────────────────────────────────
+
     # Round 2 Agent: 学习路线 — 需要 overview + tech_stack + architecture
     def _learning_node_sync(state: GraphState) -> dict[str, Any]:
         return learning_node(state)
@@ -370,6 +476,56 @@ def build_analysis_registry() -> AgentRegistry:
         dependencies=["overview", "tech_stack", "architecture"],
         produces=["learning_path"],
         run=_learning_node_async,
+    ))
+
+    # ── Round 3: Mermaid（纯静态，无 LLM 调用）───────────
+
+    async def _mermaid_node_async(state: GraphState) -> dict[str, Any]:
+        return mermaid_node(state)
+
+    _registry.register(AgentSpec(
+        name="mermaid",
+        description="Mermaid 可视化图生成（纯静态，无 LLM）",
+        dependencies=["architecture", "tech_stack"],
+        produces=["mermaid_diagrams"],
+        run=_mermaid_node_async,
+    ))
+
+    # ── Round 4: Interview Agent ───────────────────────
+
+    def _interview_node_sync(state: GraphState) -> dict[str, Any]:
+        return interview_node(state)
+
+    async def _interview_node_async(state: GraphState) -> dict[str, Any]:
+        loop = asyncio.get_running_loop()
+        return await loop.run_in_executor(None, _interview_node_sync, state)
+
+    _registry.register(AgentSpec(
+        name="interview",
+        description="面试题生成（LLM），覆盖 junior/mid/senior/staff 四级",
+        dependencies=["overview", "tech_stack", "architecture", "rag_context"],
+        produces=["interview_result"],
+        run=_interview_node_async,
+    ))
+
+    # ── Round 5: Reflection ────────────────────────────
+
+    def _reflection_node_sync(state: GraphState) -> dict[str, Any]:
+        return reflection_node(state)
+
+    async def _reflection_node_async(state: GraphState) -> dict[str, Any]:
+        loop = asyncio.get_running_loop()
+        return await loop.run_in_executor(None, _reflection_node_sync, state)
+
+    _registry.register(AgentSpec(
+        name="reflection",
+        description="分析结果自我反思与质量评估（LLM）",
+        dependencies=[
+            "overview", "tech_stack", "architecture",
+            "learning_path", "mermaid_diagrams",
+        ],
+        produces=["reflection"],
+        run=_reflection_node_async,
     ))
 
     return _registry

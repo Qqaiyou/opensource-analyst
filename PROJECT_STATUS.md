@@ -1,7 +1,7 @@
 # OpenSource Analyst - 项目进度跟踪
 
 > 最后更新：2026-06-06
-> 当前阶段：Milestone 11 ✅ 已完成 | 下一阶段：Milestone 12
+> 当前阶段：Milestone 12 ✅ 已完成 | 下一阶段：后续迭代
 
 ---
 
@@ -31,7 +31,7 @@
 | M9 | Learning Agent | ✅ 已完成 | 2026-06-05 | - |
 | M10 | Coordinator Agent | ✅ 已完成 | 2026-06-05 | - |
 | M11 | MCP 集成 | ✅ 已完成 | 2026-06-06 | - |
-| M12 | 高级功能 | ⏳ 待开始 | - | - |
+| M12 | 高级功能 | ✅ 已完成 | 2026-06-06 | - |
 
 ---
 
@@ -713,6 +713,79 @@ M11 测试明细:
 - **async context manager**：MCPServerConnection 和 MCPClientManager 均支持 `async with`，确保连接生命周期自动管理
 - **stdio_client 生命周期**：保存 `_stdio_ctx` 引用，确保 `__aexit__` 在连接关闭时正确清理子进程
 - **现阶段为独立能力层**：真实 MCP Server（GitHub/Filesystem/Browser npm 包）待后续集成，当前只搭建了连接管理框架
+
+---
+
+## 九点十、Milestone 12 完成详情
+
+### 9.10.1 产出文件
+
+| 文件 | 路径 | 内容 |
+|------|------|------|
+| Mermaid 图生成器 | `src/opensource_analyst/analysis/mermaid.py` | 纯静态 Mermaid 流程图生成（模块关系图/文件依赖图/技术栈全景图） |
+| Mermaid 图生成器 init | `src/opensource_analyst/analysis/__init__.py` | 子包初始化 |
+| Interview Agent | `src/opensource_analyst/agents/interview.py` | LLM 面试题生成（junior/mid/senior/staff 四级） |
+| Interview Prompt | `src/opensource_analyst/prompts/interview.py` | 面试题生成 prompt 模板 |
+| Reflection Agent | `src/opensource_analyst/agents/reflection.py` | LLM 自检 Agent（完整性/准确性/深度/一致性四维度评分） |
+| Reflection Prompt | `src/opensource_analyst/prompts/reflection.py` | 反思 prompt 模板 |
+| 模型增强 | `src/opensource_analyst/models/analysis.py` | 新增 7 个模型（MermaidDiagrams / InterviewQuestion / InterviewResult / ReflectionIssue / ReflectionResult / AnalysisResult 增强） |
+| GraphState 增强 | `src/opensource_analyst/graph/state.py` | 新增 4 个字段（mermaid_diagrams / interview_result / reflection / import_map） |
+| Nodes 增强 | `src/opensource_analyst/graph/nodes.py` | 新增 3 个节点（mermaid_node / interview_node / reflection_node）+ architecture_node 导出 import_map |
+| Registry 增强 | `src/opensource_analyst/graph/nodes.py` | build_analysis_registry 注册 3 个新 Agent，实现 6 轮调度 |
+| API 增强 | `src/opensource_analyst/api/analyze.py` | AnalysisResult 包含全部 M12 新字段 |
+| 版本号 | `src/opensource_analyst/__init__.py` | 0.1.0 → 0.2.0 |
+| 测试 | `tests/test_mermaid.py` | 14 个测试（全部纯静态，无 LLM 调用） |
+| 测试 | `tests/test_interview.py` | 4 个测试（2 单元 + 2 集成 LLM） |
+| 测试 | `tests/test_reflection.py` | 4 个测试（2 单元 + 2 集成 LLM） |
+
+### 9.10.2 测试结果
+
+```
+全部 M12 单元测试（无 LLM）: 18/18 PASSED
+  - test_mermaid.py:    14 tests (纯静态 Mermaid 生成)
+  - test_interview.py:   2 tests (模型校验)
+  - test_reflection.py:  2 tests (模型校验)
+```
+
+### 9.10.3 新增 Pydantic 模型
+
+| 模型 | 字段 | 用途 |
+|------|------|------|
+| MermaidDiagrams | module_flowchart, dependency_graph, tech_stack_diagram | Mermaid 可视化图字符串 |
+| InterviewQuestion | topic, difficulty, question, answer_hint, related_files, code_context | 单个面试题 |
+| InterviewResult | questions, total_questions, difficulty_distribution | 面试题集合 |
+| ReflectionIssue | category, severity, description, suggestion | 反思发现的问题 |
+| ReflectionResult | completeness_score, issues, summary | 反思结果 |
+
+### 9.10.4 LangGraph 工作流（M12）
+
+```
+load_repo → index_code → retrieve_context → coordinator ⇄ END
+                                             ↑  ↓
+                                        (多轮调度)
+
+coordinator Round 1: asyncio.gather(dependency, architecture, analyze)
+coordinator Round 2: asyncio.gather(learning)
+coordinator Round 3: mermaid_node (纯静态，无 LLM)
+coordinator Round 4: interview_node (LLM 面试题)
+coordinator Round 5: reflection_node (LLM 自检)
+coordinator Round 6: all_done → END
+```
+
+### 9.10.5 Mermaid 图生成策略
+
+- **模块关系图**（module_flowchart）：基于 ArchitectureResult.modules 和 module_relations 生成 flowchart LR，每个模块一个 subgraph，边表示模块间依赖
+- **文件依赖图**（dependency_graph）：基于 import_map（{file: [imports]}）生成有向图，按模块分组，edge 最多 40 条
+- **技术栈全景图**（tech_stack_diagram）：分四层展示项目名/语言/框架/核心依赖
+- 所有图为纯字符串生成，无 LLM 调用，零失败风险
+
+### 9.10.6 技术要点
+
+- **纯静态 Mermaid**：`mermaid_node` 全部基于已有数据的字符串拼接，无 LLM 调用，不会失败
+- **Agent 注册自动化**：M12 新增的 interview/mermaid/reflection 三个 Agent 注册到 `build_analysis_registry()`，Coordinator 自动在后续轮次调度
+- **import_map 传递**：`architecture_node` 新增产出 `import_map`，供 `mermaid_node` 的文件依赖图使用
+- **AnalysisResult 向后兼容**：所有 M12 新增字段均为 `Optional`，不影响现有 API 调用方
+- **版本提升**：0.1.0 → 0.2.0，标志 M12 高级功能完成
 
 ---
 

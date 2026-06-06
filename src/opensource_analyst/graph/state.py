@@ -5,6 +5,7 @@ from typing_extensions import NotRequired, TypedDict
 from opensource_analyst.models.repo import RepoInfo
 from opensource_analyst.models.analysis import (
     ProjectOverview, TechStack, Dependency, ArchitectureResult, LearningPath,
+    MermaidDiagrams, InterviewResult, ReflectionResult,
 )
 
 
@@ -24,4 +25,8 @@ class GraphState(TypedDict):
     tech_stack: NotRequired[TechStack | None]
     architecture: NotRequired[ArchitectureResult | None]
     learning_path: NotRequired[LearningPath | None]
+    mermaid_diagrams: NotRequired[MermaidDiagrams | None]      # M12
+    interview_result: NotRequired[InterviewResult | None]      # M12
+    reflection: NotRequired[ReflectionResult | None]            # M12
+    import_map: NotRequired[dict[str, list[str]] | None]       # M8 (for mermaid)
     error: NotRequired[str | None]

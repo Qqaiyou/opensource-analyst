@@ -300,11 +300,11 @@ async def test_coordinator_run_empty_round() -> None:
 def test_build_analysis_registry_structure() -> None:
     """验证 Registry factory 注册了正确的 Agent。"""
     registry = build_analysis_registry()
-    # 4 个 Agent
-    assert len(registry._agents) == 4
+    # M12: 7 个 Agent（dependency / architecture / analyze / learning / mermaid / interview / reflection）
+    assert len(registry._agents) == 7
 
     names = {s.name for s in registry._agents}
-    assert names == {"dependency", "architecture", "analyze", "learning"}
+    assert names == {"dependency", "architecture", "analyze", "learning", "mermaid", "interview", "reflection"}
 
     # learning 依赖 overview + tech_stack + architecture
     learning = next(s for s in registry._agents if s.name == "learning")
@@ -332,10 +332,14 @@ def test_build_analysis_registry_parallel_agents() -> None:
     names = {s.name for s in ready}
     # Round 1: dependency + architecture + analyze 并行
     # learning 不在（缺少 overview + tech_stack）
+    # mermaid / interview / reflection 也不在（Round 3+, 各自缺少依赖）
     assert "dependency" in names
     assert "architecture" in names
     assert "analyze" in names
     assert "learning" not in names
+    assert "mermaid" not in names
+    assert "interview" not in names
+    assert "reflection" not in names
 
 
 # ── 集成测试：Coordinator 全链路 ──────────────────────────
@@ -413,7 +417,7 @@ async def test_coordinator_runs_all_agents() -> None:
         print(f"[tech_stack] 语言: {ts.languages}, 框架: {ts.frameworks}")
 
     # ── Round 2 ──
-    print("\n── Round 2: learning ──")
+    print("\n── Round 2: learning + mermaid + interview ──")
     ready2 = registry.get_ready(state)
     print(f"就绪 Agent ({len(ready2)}): {[(s.name, s.dependencies) for s in ready2]}")
 
@@ -437,11 +441,32 @@ async def test_coordinator_runs_all_agents() -> None:
             print(f"    - Q: {ip.question[:80]}")
         print(f"  阅读建议: {len(learning_path.reading_suggestions)} 个")
 
-    # ── Round 3 ──
-    print("\n── Round 3: 全部完成? ──")
+    if "mermaid_diagrams" in round2:
+        mm = round2["mermaid_diagrams"]
+        print(f"\n[mermaid_diagrams] module_flowchart={'✓' if mm.module_flowchart else '✗'}, "
+              f"dependency_graph={'✓' if mm.dependency_graph else '✗'}, "
+              f"tech_stack_diagram={'✓' if mm.tech_stack_diagram else '✗'}")
+
+    if "interview_result" in round2:
+        iv = round2["interview_result"]
+        print(f"[interview_result] {iv.total_questions} 题, 难度分布: {iv.difficulty_distribution}")
+
+    # ── Round 3: reflection ──
+    print("\n── Round 3: reflection ──")
     ready3 = registry.get_ready(state)
     print(f"就绪 Agent: {[s.name for s in ready3]}")
     round3 = await coordinator.run_round(state)
+    state = {**state, **round3}  # type: ignore[dict-item]
+
+    if "reflection" in round3:
+        rf = round3["reflection"]
+        print(f"[reflection] completeness_score={rf.completeness_score}, issues={len(rf.issues)}, summary={rf.summary[:80]}")
+
+    # ── Round 4: 全部完成? ──
+    print("\n── Round 4: 全部完成? ──")
+    ready4 = registry.get_ready(state)
+    print(f"就绪 Agent: {[s.name for s in ready4]}")
+    round4 = await coordinator.run_round(state)
 
     print(f"\n{'完成! all_done = ' + str(coordinator.all_done(state))}")
     print("=" * 60)
@@ -457,5 +482,14 @@ async def test_coordinator_runs_all_agents() -> None:
     assert learning_path.estimated_days > 0
     assert len(learning_path.interview_points) >= 2
     assert len(learning_path.reading_suggestions) >= 3
-    assert round3 == {}
+    # M12: Round 2 同时产出 mermaid + interview
+    assert "mermaid_diagrams" in round2
+    assert round2["mermaid_diagrams"] is not None
+    assert "interview_result" in round2
+    assert round2["interview_result"] is not None
+    # Round 3: reflection
+    assert "reflection" in round3
+    assert round3["reflection"] is not None
+    # Round 4: 全部完成
+    assert round4 == {}
     assert coordinator.all_done(state) is True

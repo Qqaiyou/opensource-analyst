@@ -70,6 +70,10 @@ def _run_workflow_sync(task_id: str, repo_url: str) -> None:
             overview=state["overview"],
             tech_stack=state["tech_stack"],
             learning_path=state.get("learning_path"),
+            architecture=state.get("architecture"),
+            mermaid_diagrams=state.get("mermaid_diagrams"),
+            interview_result=state.get("interview_result"),
+            reflection=state.get("reflection"),
         )
 
         _store[task_id]["status"] = "completed"
