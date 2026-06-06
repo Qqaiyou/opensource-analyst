@@ -31,8 +31,21 @@ app.include_router(conversation_router)
 
 # 挂载前端页面
 frontend_dir = Path(__file__).parent / "frontend"
-if frontend_dir.exists():
-    app.mount("/chat", StaticFiles(directory=str(frontend_dir), html=True), name="frontend")
+chat_html = frontend_dir / "index.html"
+
+
+@app.get("/chat", response_class=HTMLResponse)
+async def chat_page():
+    """对话前端页面。"""
+    if chat_html.exists():
+        return HTMLResponse(chat_html.read_text(encoding="utf-8"))
+    return HTMLResponse("<h1>Chat page not found</h1>", status_code=404)
+
+
+@app.get("/chat/", response_class=HTMLResponse)
+async def chat_page_slash():
+    """对话前端页面（带尾部斜杠）。"""
+    return await chat_page()
 
 
 @app.get("/")

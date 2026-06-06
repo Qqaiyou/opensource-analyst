@@ -156,15 +156,27 @@ async function loadResult() {
   const res = await fetch(API + '/task/' + state.taskId + '/result');
   if (!res.ok) return;
   const data = await res.json();
+  console.log('Analysis result:', data);
   renderSummary(data);
 }
 
 function renderSummary(data) {
   const el = document.getElementById('analysisSummary');
-  let html = '<details open><summary>Overview</summary><pre>' + escJson(data.overview) + '</pre></details>';
-  html += '<details><summary>Tech Stack</summary><pre>' + escJson(data.tech_stack) + '</pre></details>';
+  let html = '';
+  if (data.overview) {
+    html += '<details open><summary>Overview</summary><pre>' + escJson(data.overview) + '</pre></details>';
+  }
+  if (data.tech_stack) {
+    html += '<details><summary>Tech Stack</summary><pre>' + escJson(data.tech_stack) + '</pre></details>';
+    // Show dependencies if present within tech_stack
+    if (data.tech_stack.key_dependencies && data.tech_stack.key_dependencies.length > 0) {
+      html += '<details><summary>Dependencies</summary><pre>' + escJson(data.tech_stack.key_dependencies) + '</pre></details>';
+    }
+  }
   if (data.architecture) html += '<details><summary>Architecture</summary><pre>' + escJson(data.architecture) + '</pre></details>';
   if (data.learning_path) html += '<details><summary>Learning Path</summary><pre>' + escJson(data.learning_path) + '</pre></details>';
+  if (data.interview_result) html += '<details><summary>Interview Questions</summary><pre>' + escJson(data.interview_result) + '</pre></details>';
+  if (data.reflection) html += '<details><summary>Reflection</summary><pre>' + escJson(data.reflection) + '</pre></details>';
   if (data.mermaid_diagrams) {
     html += '<details><summary>Mermaid Diagrams</summary>';
     for (const [k, v] of Object.entries(data.mermaid_diagrams)) {
@@ -172,6 +184,9 @@ function renderSummary(data) {
     }
     html += '</details>';
     setTimeout(() => mermaid.run({ querySelector: '.mermaid' }), 100);
+  }
+  if (!html) {
+    html = '<p style="color: var(--muted);">No analysis data available.</p>';
   }
   el.innerHTML = html;
 }

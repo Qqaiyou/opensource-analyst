@@ -122,13 +122,15 @@ async def send_message(conv_id: str, req: ConversationMessageRequest) -> Convers
 
     now = datetime.now(timezone.utc).isoformat()
 
-    # 构建 ConversationState
+    # 构建 ConversationState — 必须用 LangChain 消息对象
+    from langchain_core.messages import HumanMessage
+
     state: ConversationState = {
         "conversation_id": conv_id,
         "repo_url": session.repo_url,
         "repo_owner": session.repo_owner,
         "repo_name": session.repo_name,
-        "messages": [{"role": "user", "content": req.message}],
+        "messages": [HumanMessage(content=req.message)],
         "analysis_summary": session.analysis_summary,
         "mcp_tools": session.mcp_tools,
     }
@@ -143,12 +145,26 @@ async def send_message(conv_id: str, req: ConversationMessageRequest) -> Convers
 
         # 提取最终消息
         messages = final_state.get("messages", [])
-        if messages:
-            # 找到所有 AIMessage 和 ToolMessage
-            from langchain_core.messages import AIMessage, ToolMessage, HumanMessage
-            for msg in messages[1:]:  # 跳过第一条 HumanMessage
+
+        # 检查是否有错误
+        if final_state.get("error"):
+            assistant_response = f"对话处理失败: {final_state['error']}"
+        elif messages:
+            from langchain_core.messages import AIMessage, ToolMessage
+            for msg in messages:
+                if isinstance(msg, ToolMessage):
+                    content_preview = str(msg.content)[:300]
+                    reasoning_steps.append(ReasoningStep(
+                        step_type="observation",
+                        content=content_preview,
+                        tool_name=getattr(msg, "name", None),
+                        timestamp=now,
+                    ))
+
+            # 取最后一条 AIMessage 的 content 作为回复
+            for msg in reversed(messages):
                 if isinstance(msg, AIMessage):
-                    # 收集 tool_calls 作为推理步骤
+                    # 收集所有 tool_calls
                     if hasattr(msg, "tool_calls") and msg.tool_calls:
                         for tc in msg.tool_calls:
                             reasoning_steps.append(ReasoningStep(
@@ -158,25 +174,10 @@ async def send_message(conv_id: str, req: ConversationMessageRequest) -> Convers
                                 tool_args=tc.get("args", {}),
                                 timestamp=now,
                             ))
-                    # 最终回复
-                    if msg.content and not getattr(msg, "tool_calls", None):
-                        assistant_response += str(msg.content)
-                elif isinstance(msg, ToolMessage):
-                    content_preview = str(msg.content)[:300]
-                    reasoning_steps.append(ReasoningStep(
-                        step_type="observation",
-                        content=content_preview,
-                        tool_name=msg.name if hasattr(msg, "name") else None,
-                        timestamp=now,
-                    ))
-
-        # 如果没有显式的 assistant 回复，取最后一条 AIMessage
-        if not assistant_response:
-            for msg in reversed(messages):
-                from langchain_core.messages import AIMessage
-                if isinstance(msg, AIMessage) and msg.content:
-                    assistant_response = str(msg.content)
-                    break
+                    # 取最后一条 AIMessage 的 content
+                    if msg.content:
+                        assistant_response = str(msg.content)
+                        break
 
         if not assistant_response:
             assistant_response = "（AI 未生成回复）"
