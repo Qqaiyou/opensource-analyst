@@ -108,15 +108,19 @@ async def send_message(conv_id: str, req: ConversationMessageRequest) -> Convers
     for i, m in enumerate(session.messages):
         logger.info("[DEBUG]   msg[%d] role=%s content[:60]=%s", i, m["role"], m["content"][:60])
 
-    # 从 session 恢复历史消息
+    # 从 session 恢复历史消息（只加载纯 user/assistant，跳过错误回复）
     history_messages: list = []
     for m in session.messages:
         if m["role"] == "user":
             history_messages.append(HumanMessage(content=m["content"]))
         elif m["role"] == "assistant":
-            history_messages.append(AIMessage(content=m["content"]))
+            content = m["content"]
+            # 跳过之前失败的回复
+            if "对话处理失败" not in content and "Error code" not in content:
+                history_messages.append(AIMessage(content=content))
 
-    logger.info("[DEBUG] history_messages count: %d", len(history_messages))
+    logger.info("[DEBUG] 会话 %s: %d 条原始记录 -> %d 条有效历史消息",
+                 conv_id, len(session.messages), len(history_messages))
 
     # 追加当前用户消息
     history_messages.append(HumanMessage(content=req.message))

@@ -3,7 +3,7 @@
 与分析用的 GraphState 完全分离，通过 add_messages reducer 实现多轮消息累积.
 """
 
-from typing import Any
+from typing import Annotated, Any
 from typing_extensions import NotRequired, TypedDict
 from langgraph.graph.message import add_messages
 from langchain_core.messages import BaseMessage
@@ -15,8 +15,8 @@ class ConversationState(TypedDict):
     repo_owner: str
     repo_name: str
 
-    # 对话消息（add_messages reducer 自动追加）
-    messages: list[BaseMessage]  # add_messages() 在图中自动生效
+    # 对话消息 — 使用 add_messages reducer 自动追加（非覆盖）
+    messages: Annotated[list[BaseMessage], add_messages]
 
     # 从分析任务加载的结果（文本摘要，直接注入系统提示词）
     analysis_summary: NotRequired[str | None]
