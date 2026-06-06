@@ -6,7 +6,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 OpenSource Analyst Agent — a LangGraph + Multi-Agent + MCP + Repository RAG + FastAPI platform that analyzes GitHub repositories. Given a repo URL, it produces: project overview, tech stack analysis, architecture analysis, learning path, interview knowledge points, and source code reading suggestions.
 
-Development follows strict milestone sequencing (M0→M12) and a "Design First, Implementation Second" methodology — never skip phases.
+Development follows strict milestone sequencing (M0→M13) and a "Design First, Implementation Second" methodology — never skip phases.
 
 ## Essential Commands
 
@@ -48,22 +48,29 @@ $env:Path = "C:\Users\Administrator\.local\bin;$env:Path"
 Package root: `src/opensource_analyst/`
 
 ```
-main.py          — FastAPI app entry (/, /health, routers)
+main.py          — FastAPI app entry (/, /health, /dashboard, routers)
 api/             — REST API route definitions (M5+)
-  ├── analyze.py — POST /analyze (start analysis, background task)
-  ├── task.py    — GET /task/{id}, GET /task/{id}/result
-  └── chat.py    — POST /chat (RAG Q&A over indexed code)
+  ├── analyze.py      — POST /analyze (start analysis, background task)
+  ├── task.py         — GET /task/{id}, GET /task/{id}/result
+  ├── chat.py         — POST /chat (RAG Q&A over indexed code)
+  ├── conversation.py — POST /conversation/start, /{id}/message, /{id}/stream, /{id}/history (M13: ReAct对话)
+  └── session.py      — ConversationSessionStore (M13: 内存会话管理)
 agents/          — Expert Agent implementations (one per file)
   ├── base.py           — BaseAgent (LLM wrapper) + Analyzer
   ├── dependency.py     — DependencyAgent (M7: dep file parsing + LLM classification)
   ├── architecture.py   — ArchitectureAgent (M8: module grouping + import analysis + LLM report)
   ├── learning.py       — LearningAgent (M9: synthesis of all analyses + LLM learning path)
+  ├── interview.py      — InterviewAgent (M12: 四级面试题生成)
+  ├── reflection.py     — ReflectionAgent (M12: 四维度质量自检)
   ├── registry.py       — AgentRegistry + AgentSpec (M10: Agent registration + ready/done detection)
-  └── coordinator.py    — CoordinatorAgent (M10: parallel dispatch via asyncio.gather + fault isolation)
-graph/           — LangGraph StateGraph definition, nodes, edges (M6, M10 refactored)
-  ├── state.py   — GraphState (11 fields: repo_url, repo_info, code_indexed, rag_context, parsed_dependencies, dependencies, overview, tech_stack, architecture, learning_path, error)
-  ├── nodes.py   — 8 nodes (load_repo / index_code / retrieve_context / dependency / analyze / architecture / learning / coordinator) + build_analysis_registry()
-  └── workflow.py — build_workflow() + export_workflow_mermaid() + coordinator conditional loop
+  ├── coordinator.py    — CoordinatorAgent (M10: parallel dispatch via asyncio.gather + fault isolation)
+  └── react_agent.py    — ReactAgent (M13: ReAct 对话 Agent, tool calling)
+graph/           — LangGraph StateGraph definition, nodes, edges (M6+)
+  ├── state.py              — GraphState (15 fields for analysis pipeline)
+  ├── nodes.py              — 11 nodes + build_analysis_registry() (7 Agent 注册)
+  ├── workflow.py           — build_workflow() + export_workflow_mermaid() + coordinator loop
+  ├── conversation.py       — build_conversation_graph() (M13: ReAct call_model ⇄ tool_node)
+  └── conversation_state.py — ConversationState (M13: messages + add_messages reducer)
 rag/             — Repository RAG retrieval logic (M4)
   ├── indexer.py  — CodeIndexer (file filter → download → chunk → embed → store)
   └── retriever.py — CodeRetriever (semantic search → context assembly)
@@ -73,23 +80,33 @@ github/          — GitHub API client
   ├── parser.py                 — RepoParser (file tree + language stats)
   ├── dependency_parser.py      — DependencyFileParser (M7: dep file detection + parsing)
   └── architecture_analyzer.py  — ArchitectureAnalyzer (M8: module grouping + AST import + entry file)
-mcp/             — MCP server integration (M11)
-	  ├── __init__.py   — Public API exports (MCPServerConfig / MCPServerConnection / MCPClientManager / ...)
-	  ├── config.py     — MCPServerConfig + MCPToolInfo + MCPToolResult (Pydantic models)
-	  └── client.py     — MCPServerConnection + MCPClientManager (stdio transport connection management)
+mcp/             — MCP server integration (M11+)
+  ├── __init__.py    — Public API exports
+  ├── config.py      — MCPServerConfig + MCPToolInfo + MCPToolResult
+  ├── client.py      — MCPServerConnection + MCPClientManager (stdio transport)
+  └── tool_bridge.py — build_mcp_tools() (M13: MCP → LangChain StructuredTool)
+analysis/        — Static analysis utilities (M12)
+  ├── __init__.py
+  └── mermaid.py — build_all_mermaid() — 三种 Mermaid 图生成
 prompts/         — LLM prompt templates
   ├── overview.py      — Project overview + tech stack analysis prompt
   ├── dependency.py    — Dependency analysis prompt (M7)
   ├── architecture.py  — Architecture analysis prompt (M8)
   ├── learning.py      — Learning path prompt (M9)
+  ├── interview.py     — Interview question prompt (M12)
+  ├── reflection.py    — Self-reflection prompt (M12)
+  ├── conversation.py  — ReAct conversation system prompt (M13)
   └── chat.py          — RAG Q&A prompt template
+frontend/        — Static web UI (M13)
+  └── chat.html  — Interactive chat frontend (SSE + Mermaid + reasoning trace)
 vectorstore/     — ChromaDB wrapper and indexing logic (M4)
   └── chroma.py  — DashScopeEmbeddings + VectorStore (CRUD + count)
 models/          — Pydantic models (no raw dict returns)
-  ├── repo.py    — RepoInfo (owner, repo, readme, file_tree, languages)
-  ├── analysis.py — AnalysisResult, ProjectOverview, TechStack, Dependency, ArchitectureResult, ModuleInfo, LearningStep, InterviewPoint, ReadingSuggestion, LearningPath
-  ├── task.py     — AnalyzeRequest, TaskStatus, TaskResult
-  └── chat.py     — ChatRequest, ChatResponse, SourceInfo
+  ├── repo.py         — RepoInfo (owner, repo, readme, file_tree, languages)
+  ├── analysis.py     — AnalysisResult + 15 analysis models
+  ├── task.py         — AnalyzeRequest, TaskStatus, TaskResult
+  ├── chat.py         — ChatRequest, ChatResponse, SourceInfo
+  └── conversation.py — Conversation models (M13)
 ```
 
 ### Environment Variables (.env)
@@ -110,27 +127,22 @@ SDK: ChatOpenAI (LangChain-OpenAI)
 Temperature: 0.3
 ```
 
-### Agent Pipeline (current → future)
+### Agent Pipeline (M13)
 
 ```
-[Current — M11]
 POST /analyze → BackgroundTasks → LangGraph Workflow → AnalysisResult
   Pipeline: load_repo → index_code → retrieve_context → coordinator ⇄ END
-  Coordinator: asyncio.gather(dependency, architecture, analyze) → learning
+  Coordinator: asyncio.gather(dependency, architecture, analyze) → learning → mermaid → interview → reflection
 GET /task/{id} → status polling → GET /task/{id}/result
 POST /chat → RAG 检索 + DeepSeek → 答案 + 代码引用来源
-MCP 能力层: MCPServerConnection + MCPClientManager → stdio transport 连接外部 MCP Server
 
-[Future — M11+]
-[Coordinator Agent]
-  ├── RepoAgent        — GitHub data fetching
-  ├── DependencyAgent  — tech stack / dependency analysis ✅ (M7)
-  ├── ArchitectureAgent — project structure & module analysis ✅ (M8)
-  └── LearningAgent    — learning path & interview questions ✅ (M9)
-[能力层]
-  ├── GitHub MCP       — Issue/PR/Release/Commit/Search
-  ├── Filesystem MCP   — 本地文件读写
-  └── Browser MCP      — 网页搜索/抓取
+M13: Interactive Conversation
+POST /conversation/start → 基于已完成的 task_id 加载分析结果 → 创建会话
+POST /conversation/{id}/message → ReAct Agent (search_code + MCP tools) → 回答 + 推理步骤
+GET /conversation/{id}/stream → SSE 流式输出 (token + tool events)
+
+MCP 能力层: MCPServerConnection + MCPClientManager → stdio transport 连接外部 MCP Server
+MCP → LangChain Tool Bridge: build_mcp_tools() 将 MCP 工具动态注入 ReAct Agent 的可用工具集
 ```
 
 ### LangGraph Workflow (Milestone 9 ✅)
@@ -180,9 +192,10 @@ coordinator 内部并行调度:
 | M7 | ✅ | Dependency Agent |
 | M8 | ✅ | Architecture Agent |
 | M9 | ✅ | Learning Agent |
-| M10 | ⏳ | Coordinator Agent (multi-agent orchestration) |
-| M11 | ⏳ | MCP integration (GitHub, Filesystem, Browser) |
-| M12 | ⏳ | Advanced features (Mermaid, Interview Agent, Reflection) |
+| M10 | ✅ | Coordinator Agent (multi-agent orchestration) |
+| M11 | ✅ | MCP integration (GitHub, Filesystem, Browser) |
+| M12 | ✅ | Advanced features (Mermaid, Interview Agent, Reflection) |
+| M13 | ✅ | Interactive Conversation (ReAct Agent + RAG + MCP + Chat UI) |
 
 ## Key Design Docs
 

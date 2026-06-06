@@ -1,7 +1,7 @@
 # OpenSource Analyst - 项目进度跟踪
 
 > 最后更新：2026-06-06
-> 当前阶段：Milestone 12 ✅ 已完成 | 下一阶段：后续迭代
+> 当前阶段：Milestone 13 ✅ 已完成 | 全部 13 个里程碑完成
 
 ---
 
@@ -31,7 +31,8 @@
 | M9 | Learning Agent | ✅ 已完成 | 2026-06-05 | - |
 | M10 | Coordinator Agent | ✅ 已完成 | 2026-06-05 | - |
 | M11 | MCP 集成 | ✅ 已完成 | 2026-06-06 | - |
-| M12 | 高级功能 | ✅ 已完成 | 2026-06-06 | - |
+| M12 | 高级功能 | ✅ 已完成 | 2026-06-06 | `dc6beaf` |
+| M13 | 交互式对话 | ✅ 已完成 | 2026-06-06 | — |
 
 ---
 
@@ -786,6 +787,96 @@ coordinator Round 6: all_done → END
 - **import_map 传递**：`architecture_node` 新增产出 `import_map`，供 `mermaid_node` 的文件依赖图使用
 - **AnalysisResult 向后兼容**：所有 M12 新增字段均为 `Optional`，不影响现有 API 调用方
 - **版本提升**：0.1.0 → 0.2.0，标志 M12 高级功能完成
+
+---
+
+## 九点十一、Milestone 13 完成详情
+
+### 9.11.1 产出文件
+
+| 文件 | 路径 | 内容 |
+|------|------|------|
+| ConversationState | `src/opensource_analyst/graph/conversation_state.py` | 对话状态 TypedDict（messages + add_messages reducer + 分析结果字段） |
+| ConversationGraph | `src/opensource_analyst/graph/conversation.py` | build_conversation_graph() — ReAct 循环图（call_model ⇄ tool_node） |
+| ReactAgent | `src/opensource_analyst/agents/react_agent.py` | 单 ReAct Agent，绑定 search_code + MCP tools |
+| MCP Tool Bridge | `src/opensource_analyst/mcp/tool_bridge.py` | build_mcp_tools() — MCPToolInfo → LangChain StructuredTool |
+| Conversation Prompt | `src/opensource_analyst/prompts/conversation.py` | ReAct 系统提示词（中文，注入分析结果 + 工具使用规范） |
+| Conversation API | `src/opensource_analyst/api/conversation.py` | 5 个端点（/start /{id}/message /{id}/stream /{id}/history DELETE） |
+| Session Store | `src/opensource_analyst/api/session.py` | ConversationSessionStore — 内存会话管理 + AnalysisResult 摘要压缩 |
+| Conversation Models | `src/opensource_analyst/models/conversation.py` | Pydantic 模型（请求/响应/ReasoningStep） |
+| Chat Frontend | `src/opensource_analyst/frontend/chat.html` | 三栏交互式聊天 UI（SSE 流式 + Mermaid 渲染 + 推理轨迹面板） |
+| BaseAgent 增强 | `src/opensource_analyst/agents/base.py` | 新增 invoke_messages()、bind_tools()、llm 属性 |
+| main.py 更新 | `src/opensource_analyst/main.py` | 注册 conversation router + 挂载 frontend + 版本→0.2.0 |
+| graph/__init__.py 更新 | `src/opensource_analyst/graph/__init__.py` | 导出 conversation graph + ConversationState |
+| 测试 | `tests/test_conversation_state.py` | 10 个测试（模型 + State + Prompt） |
+| 测试 | `tests/test_conversation_api.py` | 10 个测试（SessionStore + API） |
+
+### 9.11.2 测试结果
+
+```
+全量：128 + 20 = 148 PASSED（零回归）
+  M13 新增 20 tests（全部纯单元，无 LLM 依赖）:
+    test_conversation_state.py: 10 tests (模型 / State / Prompt)
+    test_conversation_api.py:   10 tests (SessionStore 全部方法 + API 模型)
+```
+
+### 9.11.3 核心架构
+
+```
+POST /analyze (M0-M12 管线) → 分析结果存入 _store
+    │
+    ▼
+POST /conversation/start → 从 _store 加载结果 → 压缩为文本摘要 → 创建会话
+    │
+    ▼
+POST /conversation/{id}/message → ReAct 对话图
+    │
+    ▼
+call_model → LLM (含 search_code + MCP tools) → AIMessage
+    │                    │
+    │  无 tool_calls   有 tool_calls
+    │                    │
+    ▼                    ▼
+  END               tool_node (执行 search_code / MCP call)
+                        │
+                        ▼
+                   ToolMessage → call_model (循环继续)
+```
+
+### 9.11.4 对话工具
+
+| 工具 | 来源 | 用途 |
+|------|------|------|
+| search_code | CodeRetriever + VectorStore | 语义搜索代码片段 |
+| call_mcp_* | MCPClientManager → StructuredTool | 调用外部 MCP 工具（动态注入） |
+
+### 9.11.5 新增 API 端点
+
+| 方法 | 路径 | 用途 |
+|------|------|------|
+| POST | `/conversation/start` | 基于 task_id 创建会话 |
+| POST | `/conversation/{id}/message` | 发送消息，返回回复 + 推理步骤 |
+| GET | `/conversation/{id}/stream` | SSE 流式输出 |
+| GET | `/conversation/{id}/history` | 对话历史 |
+| DELETE | `/conversation/{id}` | 删除会话 |
+
+### 9.11.6 前端 (chat.html)
+
+- **访问**：`http://localhost:8000/chat`
+- **三栏布局**：左侧分析摘要 + 中间对话流 + 右侧推理轨迹
+- **流程**：输入 GitHub URL → 自动调 /analyze → 轮询状态 → 自动创建对话 → 开始聊天
+- **SSE 流式**：打字效果 + 工具调用实时展示
+- **Mermaid 渲染**：内联渲染 Mermaid 图
+- **Markdown 渲染**：marked.js 渲染 + 代码高亮
+
+### 9.11.7 技术要点
+
+- **两图分离**：分析图（build_workflow）和对话图（build_conversation_graph）完全独立，零侵入
+- **单 Agent ReAct**：仅 2 个工具（search_code + MCP），DeepSeek function calling 风险极低
+- **分析摘要注入**：AnalysisResult 压缩为文本注入系统提示词，避免上下文膨胀
+- **MCP 动态注入**：MCP 工具列表序列化到 ConversationState，tool_node 动态还原执行
+- **模块级共享 MCPManager**：API 层设置 set_mcp_manager()，图内通过 _shared_mcp_manager 调用
+- **Session 复用 analyze 内存存储**：conversation API 读取 api/analyze.py 的 task _store 获取分析结果
 
 ---
 

@@ -4,6 +4,8 @@ import json
 import os
 from typing import Any
 
+from langchain_core.messages import BaseMessage
+from langchain_core.tools import BaseTool
 from langchain_openai import ChatOpenAI
 
 from opensource_analyst.models.repo import RepoInfo
@@ -34,10 +36,26 @@ class BaseAgent:
             temperature=temperature,
         )
 
+    @property
+    def llm(self) -> ChatOpenAI:
+        """暴露原始 ChatOpenAI 实例，供 bind_tools 等高级用法使用。"""
+        return self._llm
+
     def invoke(self, prompt: str) -> str:
         """发送 prompt 到 LLM，返回原始文本。"""
         response = self._llm.invoke(prompt)
         return response.content.strip()  # type: ignore[no-any-return]
+
+    def invoke_messages(self, messages: list[BaseMessage]) -> Any:
+        """发送消息列表到 LLM，返回 AIMessage。
+
+        用于多轮对话和 tool calling 场景。
+        """
+        return self._llm.invoke(messages)
+
+    def bind_tools(self, tools: list[BaseTool]) -> ChatOpenAI:
+        """返回绑定了工具的 LLM 实例，用于 ReAct 调用。"""
+        return self._llm.bind_tools(tools)
 
     def _invoke(self, prompt: str) -> str:
         """已废弃：请使用 invoke()。"""
