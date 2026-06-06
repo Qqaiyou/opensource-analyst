@@ -34,6 +34,11 @@ from opensource_analyst.rag.retriever import CodeRetriever
 from opensource_analyst.vectorstore.chroma import VectorStore
 
 logger = logging.getLogger(__name__)
+if not logger.handlers:
+    h = logging.StreamHandler()
+    h.setFormatter(logging.Formatter("%(asctime)s [%(levelname)s] %(name)s: %(message)s", datefmt="%H:%M:%S"))
+    logger.addHandler(h)
+logger.setLevel(logging.DEBUG)
 
 _conversation_react_agent = ReactAgent()
 

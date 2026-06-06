@@ -25,6 +25,13 @@ from opensource_analyst.graph.conversation_state import ConversationState
 
 logger = logging.getLogger(__name__)
 
+# 确保 logger 输出 INFO 级别
+if not logger.handlers:
+    h = logging.StreamHandler()
+    h.setFormatter(logging.Formatter("%(asctime)s [%(levelname)s] %(name)s: %(message)s", datefmt="%H:%M:%S"))
+    logger.addHandler(h)
+logger.setLevel(logging.DEBUG)
+
 
 @tool
 async def search_code(query: str) -> str:
