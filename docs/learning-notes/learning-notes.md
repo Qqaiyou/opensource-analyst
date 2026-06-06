@@ -1057,4 +1057,89 @@ uv run pytest                              # 全量回归
 
 ---
 
+## Milestone 13 — 交互式对话 (ReAct Agent + 前端)
+
+### Step 1: 概念讲解
+
+- **ReAct 模式**：Think（思考需要什么）→ Act（执行工具）→ Observe（观察结果）→ 循环直到能回答。LLM 不是直接给出答案，而是像人一样"先想、再查、再看、再回答"。
+- **LangChain Messages**：`HumanMessage`（用户说的）、`AIMessage`（AI 回的）、`SystemMessage`（给 AI 的指令）、`ToolMessage`（工具执行结果）。这些必须是 LangChain 对象，不能用普通 dict，因为 LangChain 需要这些类型来正确处理 tool calling 的消息顺序。
+- **add_messages reducer**：LangGraph 的特性 —— 当你从节点返回 `{"messages": [new_msg]}` 时，它不是覆盖 state 中的 messages，而是追加。
+- **bind_tools**：`ChatOpenAI.bind_tools([tool1, tool2])` 告诉 DeepSeek"你可以用这些工具"，LLM 会自动决定是否需要调用、调用哪个、传什么参数。
+- **ToolNode**：LangGraph 预置节点，接收 AIMessage 中的 tool_calls，执行对应的工具函数，返回 ToolMessage。
+
+### Step 2: 在项目中的作用
+
+**为什么需要 M13**：M0-M12 完成了分析管线，输出是 JSON。但用户需要的是：能看到分析结果、能追问、能连续对话、AI 能自主查代码和外部信息。
+
+**输入 → 输出**：
+```
+输入:  浏览器 http://localhost:8000/chat
+      → 粘贴 GitHub URL → 点 Analyze → 等待分析
+      → 输入对话消息
+
+输出:  左侧：完整分析报告（可折叠，含 Mermaid 图渲染）
+      中间：多轮对话（Markdown + 代码高亮）
+      右侧：ReAct 推理步骤（调了什么工具、观察到了什么）
+```
+
+### Step 3: 设计方案
+
+**核心架构决策**：
+1. 两图分离：分析图（build_workflow）和对话图（build_conversation_graph）完全独立，零侵入
+2. 单 Agent ReAct：2 个工具（search_code + MCP），而非复杂的多 Agent 调度
+3. 分析结果注入：AnalysisResult 压缩为文本摘要注入系统提示词，AI 直接"知道"所有信息
+
+**对话图结构**：
+```
+call_model ⇄ tool_node → END
+
+call_model: LLM + bound tools → AIMessage（含 tool_calls 或最终回复）
+tool_node:  执行 search_code / MCP call → ToolMessage
+条件边:     tools_condition（有 tool_calls → tool_node，否则 → END）
+```
+
+**目录结构（新增 + 修改）**：
+| 文件 | 类型 | 说明 |
+|------|------|------|
+| `graph/conversation_state.py` | 新增 | ConversationState (messages + add_messages + 分析字段) |
+| `graph/conversation.py` | 新增 | build_conversation_graph() — ReAct 循环图 |
+| `agents/react_agent.py` | 新增 | ReactAgent — 绑定 search_code + MCP tools |
+| `mcp/tool_bridge.py` | 新增 | MCPToolInfo → LangChain StructuredTool |
+| `prompts/conversation.py` | 新增 | ReAct 系统提示词 |
+| `api/conversation.py` | 新增 | 5 个端点 (POST start, POST message, GET stream, GET history, DELETE) |
+| `api/session.py` | 新增 | ConversationSessionStore + 分析摘要压缩 |
+| `models/conversation.py` | 新增 | Pydantic 模型 |
+| `frontend/index.html` | 新增 | 三栏聊天 UI |
+| `agents/base.py` | 修改 | +invoke_messages(), +bind_tools(), +llm 属性 |
+| `main.py` | 修改 | 注册 conversation router + /chat 路由 + version 0.2.0 |
+| `graph/__init__.py` | 修改 | 导出 conversation 符号 |
+
+### Step 4: 实现要点
+
+- 1610 行新增代码，11 个新增文件，3 个修改文件
+- 20 个 M13 单元测试（State/Models/Prompt/SessionStore/API），全量 148/148 PASSED
+- 分析管线完全不动，零回归
+
+### Step 5: 验收标准
+
+见 `docs/learning-notes/m13-notes-step5.md`
+
+### Step 6: 文档更新
+
+- PROJECT_STATUS.md: 新增 M13 完成详情章节
+- CLAUDE.md: 更新架构图、里程碑表、Agent Pipeline 文档
+- learning-notes.md: 新增 M13 条目（本文）
+
+### M13 vs 之前
+
+| 维度 | M0-M12 | M13 |
+|------|--------|-----|
+| 交互方式 | curl / Swagger UI JSON | 浏览器三栏聊天界面 |
+| 分析结果展示 | 原始 JSON | 可折叠面板 + Mermaid 渲染 |
+| 对话模式 | 单轮 POST /chat | 多轮 ReAct + 上下文记忆 |
+| 工具调用 | Agent 固定管线 | LLM 自主决定何时调工具 |
+| 外部能力 | MCP 仅做连接管理 | MCP 工具动态注入对话 |
+
+---
+
 *笔记结束。最后更新：2026-06-06*
