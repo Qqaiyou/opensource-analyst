@@ -82,6 +82,9 @@ class ReactAgent(BaseAgent):
         llm_with_tools = self.bind_tools(all_tools)
         messages = [SystemMessage(content=system_prompt)] + list(state["messages"])
 
-        logger.debug("ReAct 调用 — %d 条消息, %d 个工具", len(messages), len(all_tools))
+        logger.info("ReAct 调用 — 消息数: %d (前3条: %s), 工具数: %d",
+                     len(messages),
+                     [(type(m).__name__, str(m.content)[:50]) for m in messages[:3]],
+                     len(all_tools))
 
         return await llm_with_tools.ainvoke(messages)
