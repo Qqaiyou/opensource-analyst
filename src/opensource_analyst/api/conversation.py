@@ -123,14 +123,26 @@ async def send_message(conv_id: str, req: ConversationMessageRequest) -> Convers
     now = datetime.now(timezone.utc).isoformat()
 
     # 构建 ConversationState — 必须用 LangChain 消息对象
-    from langchain_core.messages import HumanMessage
+    # 加载历史消息以实现多轮对话
+    from langchain_core.messages import HumanMessage, AIMessage
+
+    # 从 session 恢复历史消息
+    history_messages: list = []
+    for m in session.messages:
+        if m["role"] == "user":
+            history_messages.append(HumanMessage(content=m["content"]))
+        elif m["role"] == "assistant":
+            history_messages.append(AIMessage(content=m["content"]))
+
+    # 追加当前用户消息
+    history_messages.append(HumanMessage(content=req.message))
 
     state: ConversationState = {
         "conversation_id": conv_id,
         "repo_url": session.repo_url,
         "repo_owner": session.repo_owner,
         "repo_name": session.repo_name,
-        "messages": [HumanMessage(content=req.message)],
+        "messages": history_messages,
         "analysis_summary": session.analysis_summary,
         "mcp_tools": session.mcp_tools,
     }

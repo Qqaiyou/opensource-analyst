@@ -156,8 +156,11 @@ async function loadResult() {
   const res = await fetch(API + '/task/' + state.taskId + '/result');
   if (!res.ok) return;
   const data = await res.json();
-  console.log('Analysis result:', data);
-  renderSummary(data);
+  console.log('Raw API response:', data);
+  // TaskResult 模型: {task_id, status, result: {overview, ...}, error}
+  const analysisData = data.result || data;
+  console.log('Analysis data:', analysisData);
+  renderSummary(analysisData);
 }
 
 function renderSummary(data) {
