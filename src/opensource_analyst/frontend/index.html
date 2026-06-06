@@ -29,13 +29,13 @@
   .input-row button, button { padding: 10px 20px; border: none; border-radius: var(--radius); background: var(--accent); color: #fff; cursor: pointer; font-size: 0.9rem; }
   button:disabled { opacity: 0.5; cursor: not-allowed; }
   button.secondary { background: var(--border); }
-  .status { font-size: 0.8rem; color: var(--muted); margin-bottom: 8px; }
+  .status { font-size: 0.8rem; color: var(--muted); margin-bottom: 8px; word-break: break-all; }
   .status.ok { color: var(--green); }
   .status.error { color: var(--red); }
   .status.running { color: var(--amber); }
   .summary { font-size: 0.8rem; line-height: 1.5; }
   .summary details { margin-bottom: 8px; }
-  .summary summary { cursor: pointer; color: var(--accent); font-weight: 600; }
+  .summary summary { cursor: pointer; color: var(--accent); font-weight: 600; user-select: none; }
   .summary pre { font-size: 0.72rem; background: var(--bg); padding: 8px; border-radius: var(--radius); overflow-x: auto; white-space: pre-wrap; max-height: 200px; }
   .chat-area { flex: 1; overflow-y: auto; padding: 0 16px; }
   .chat-input { padding: 16px; border-top: 1px solid var(--border); }
@@ -50,7 +50,6 @@
   .msg .content pre { background: var(--bg); padding: 12px; border-radius: 4px; overflow-x: auto; font-size: 0.8rem; }
   .msg .content code { font-family: 'Cascadia Code', 'Fira Code', monospace; font-size: 0.82rem; background: var(--bg); padding: 1px 4px; border-radius: 3px; }
   .msg .content pre code { background: none; padding: 0; }
-  .msg .meta { font-size: 0.72rem; color: var(--muted); margin-bottom: 4px; }
   .trace-item { padding: 8px 12px; margin-bottom: 8px; border-radius: var(--radius); font-size: 0.78rem; }
   .trace-item.tool_call { background: rgba(59,130,246,0.15); border-left: 3px solid var(--accent); }
   .trace-item.observation { background: rgba(34,197,94,0.1); border-left: 3px solid var(--green); }
@@ -70,27 +69,27 @@
   <span class="conv-id-display" id="convIdDisplay"></span>
 </div>
 <div class="main">
-  <!-- Left Panel: Analysis Control -->
+  <!-- Left Panel: Analysis Summary -->
   <div class="panel panel-left">
-    <h3>Repo Analysis</h3>
+    <h3>Analysis Report</h3>
     <div class="input-row">
       <input id="repoUrl" placeholder="GitHub URL..." value="https://github.com/msiemens/tinydb">
       <button id="btnAnalyze" onclick="startAnalysis()">Analyze</button>
     </div>
-    <div class="status" id="analysisStatus">Ready</div>
+    <div class="status" id="analysisStatus">Enter a GitHub URL and click Analyze</div>
     <div class="summary" id="analysisSummary"></div>
   </div>
 
   <!-- Center Panel: Chat -->
   <div class="panel-center">
     <div class="chat-area" id="chatArea">
-      <div class="empty-state">Input a GitHub URL and click Analyze to start.<br>Then ask questions about the codebase.</div>
+      <div class="empty-state">Submit a repo URL and wait for analysis to complete.<br>Then start chatting with the AI.</div>
     </div>
     <div class="chat-input">
       <textarea id="chatInput" rows="2" placeholder="Ask about the project..." disabled></textarea>
       <div class="row">
         <button id="btnSend" onclick="sendMessage()" disabled>Send</button>
-        <button class="secondary" id="btnNewConv" onclick="resetAll()" style="display:none;">New Chat</button>
+        <button class="secondary" id="btnNewConv" onclick="resetAll()" style="display:none">New Chat</button>
       </div>
     </div>
   </div>
@@ -108,7 +107,7 @@
 mermaid.initialize({ startOnLoad: true, theme: 'dark' });
 
 const API = '';
-let state = { taskId: null, conversationId: null, repoUrl: null, analysisDone: false, streaming: false };
+const state = { taskId: null, conversationId: null, repoUrl: null, analysisDone: false, streaming: false };
 
 // ── Analysis ──────────────────────────────────
 async function startAnalysis() {
@@ -128,70 +127,79 @@ async function startAnalysis() {
     if (!res.ok) { setStatus('Error: ' + (await res.json()).detail, 'error'); disableAnalyze(false); return; }
     const data = await res.json();
     state.taskId = data.task_id;
-    setStatus('Task: ' + state.taskId + ' — polling...', 'running');
+    setStatus('Task: ' + state.taskId + ' — starting...', 'running');
     pollTask();
   } catch (e) { setStatus('Error: ' + e.message, 'error'); disableAnalyze(false); }
 }
 
 async function pollTask() {
-  const maxRetries = 120;
-  for (let i = 0; i < maxRetries; i++) {
+  for (let i = 0; i < 180; i++) {
     await sleep(2000);
-    const res = await fetch(API + '/task/' + state.taskId);
-    if (!res.ok) continue;
-    const data = await res.json();
-    setStatus('Status: ' + data.status + (i > 0 ? ` (${i * 2}s)` : ''), data.status === 'completed' ? 'ok' : 'running');
-    if (data.status === 'completed') {
-      state.analysisDone = true;
-      await loadResult();
-      await startConversation();
-      return;
-    }
-    if (data.status === 'error') { setStatus('Analysis failed', 'error'); disableAnalyze(false); return; }
+    try {
+      const res = await fetch(API + '/task/' + state.taskId);
+      if (!res.ok) continue;
+      const data = await res.json();
+      if (data.status === 'completed') {
+        state.analysisDone = true;
+        setStatus('Analysis complete! Loading results...', 'ok');
+        await loadResult();
+        await startConversation();
+        return;
+      }
+      if (data.status === 'error') { setStatus('Analysis failed: ' + (data.error || 'unknown'), 'error'); disableAnalyze(false); return; }
+      setStatus('Analyzing... ' + data.status + ' (' + (i*2) + 's)', 'running');
+    } catch (e) { /* retry */ }
   }
   setStatus('Timeout — try again', 'error'); disableAnalyze(false);
 }
 
 async function loadResult() {
-  const res = await fetch(API + '/task/' + state.taskId + '/result');
-  if (!res.ok) return;
-  const data = await res.json();
-  console.log('Raw API response:', data);
-  // TaskResult 模型: {task_id, status, result: {overview, ...}, error}
-  const analysisData = data.result || data;
-  console.log('Analysis data:', analysisData);
-  renderSummary(analysisData);
+  try {
+    const res = await fetch(API + '/task/' + state.taskId + '/result');
+    if (!res.ok) return;
+    const data = await res.json();
+    // /task/{id}/result returns { task_id, status, result: AnalysisResult, error }
+    renderSummary(data.result || data);
+  } catch (e) { console.error('loadResult failed:', e); }
 }
 
 function renderSummary(data) {
   const el = document.getElementById('analysisSummary');
+  if (!data) { el.innerHTML = '<p style="color:var(--muted)">No data.</p>'; return; }
+
+  const sections = [
+    ['Overview', data.overview],
+    ['Tech Stack', data.tech_stack],
+    ['Architecture', data.architecture],
+    ['Learning Path', data.learning_path],
+    ['Interview Result', data.interview_result],
+    ['Reflection', data.reflection],
+  ];
+
   let html = '';
-  if (data.overview) {
-    html += '<details open><summary>Overview</summary><pre>' + escJson(data.overview) + '</pre></details>';
+  for (const [title, obj] of sections) {
+    if (obj) html += '<details><summary>' + title + '</summary><pre>' + escJson(obj) + '</pre></details>';
   }
-  if (data.tech_stack) {
-    html += '<details><summary>Tech Stack</summary><pre>' + escJson(data.tech_stack) + '</pre></details>';
-    // Show dependencies if present within tech_stack
-    if (data.tech_stack.key_dependencies && data.tech_stack.key_dependencies.length > 0) {
-      html += '<details><summary>Dependencies</summary><pre>' + escJson(data.tech_stack.key_dependencies) + '</pre></details>';
-    }
-  }
-  if (data.architecture) html += '<details><summary>Architecture</summary><pre>' + escJson(data.architecture) + '</pre></details>';
-  if (data.learning_path) html += '<details><summary>Learning Path</summary><pre>' + escJson(data.learning_path) + '</pre></details>';
-  if (data.interview_result) html += '<details><summary>Interview Questions</summary><pre>' + escJson(data.interview_result) + '</pre></details>';
-  if (data.reflection) html += '<details><summary>Reflection</summary><pre>' + escJson(data.reflection) + '</pre></details>';
+
+  // Mermaid diagrams
   if (data.mermaid_diagrams) {
-    html += '<details><summary>Mermaid Diagrams</summary>';
+    html += '<details open><summary>Mermaid Diagrams</summary>';
     for (const [k, v] of Object.entries(data.mermaid_diagrams)) {
-      if (v) html += '<pre class="mermaid">' + escHtml(v) + '</pre>';
+      if (v && typeof v === 'string' && v.trim()) {
+        html += '<div style="margin:8px 0;"><strong>' + escHtml(k) + '</strong><pre class="mermaid" style="font-size:0.65rem;">' + escHtml(v) + '</pre></div>';
+      }
     }
     html += '</details>';
-    setTimeout(() => mermaid.run({ querySelector: '.mermaid' }), 100);
   }
-  if (!html) {
-    html = '<p style="color: var(--muted);">No analysis data available.</p>';
+
+  el.innerHTML = html || '<p style="color:var(--muted)">No analysis data available.</p>';
+
+  // render mermaid after DOM insertion
+  if (data.mermaid_diagrams) {
+    setTimeout(async () => {
+      try { await mermaid.run({ querySelector: '.mermaid' }); } catch (e) { console.warn('Mermaid render failed:', e); }
+    }, 200);
   }
-  el.innerHTML = html;
 }
 
 async function startConversation() {
@@ -200,23 +208,23 @@ async function startConversation() {
       method: 'POST', headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ task_id: state.taskId })
     });
-    if (!res.ok) { setStatus('Failed to start conversation', 'error'); return; }
+    if (!res.ok) { setStatus('Failed to start conversation: ' + (await res.json()).detail, 'error'); return; }
     const data = await res.json();
     state.conversationId = data.conversation_id;
     document.getElementById('convIdDisplay').textContent = 'Conv: ' + state.conversationId;
     document.getElementById('btnNewConv').style.display = '';
     enableChat(true);
-    setStatus('Ready — ask a question below!', 'ok');
+    setStatus('Ready! Ask a question below.', 'ok');
     addSystemMsg('Analysis complete. You can now ask questions about **' + state.repoUrl + '**.');
   } catch (e) { setStatus('Error: ' + e.message, 'error'); }
 }
 
 // ── Chat ──────────────────────────────────────
 async function sendMessage() {
-  if (state.streaming) return;
+  if (state.streaming || !state.conversationId) return;
   const input = document.getElementById('chatInput');
   const msg = input.value.trim();
-  if (!msg || !state.conversationId) return;
+  if (!msg) return;
   input.value = '';
   state.streaming = true;
   document.getElementById('btnSend').disabled = true;
@@ -232,9 +240,7 @@ async function sendMessage() {
     if (!res.ok) { addErrorMsg('Error: ' + (await res.json()).detail); return; }
     const data = await res.json();
     addAssistantMsg(data.assistant_response);
-    for (const step of (data.reasoning_steps || [])) {
-      addTraceItem(step);
-    }
+    for (const step of (data.reasoning_steps || [])) addTraceItem(step);
   } catch (e) { addErrorMsg('Error: ' + e.message); }
   finally {
     state.streaming = false;
@@ -243,70 +249,61 @@ async function sendMessage() {
   }
 }
 
-// ── UI Helpers ────────────────────────────────
+// ── UI ────────────────────────────────────────
 function addUserMsg(text) {
-  const area = document.getElementById('chatArea');
   const div = document.createElement('div'); div.className = 'msg user';
   div.innerHTML = '<div class="content">' + escHtml(text) + '</div>';
-  area.appendChild(div); area.scrollTop = area.scrollHeight;
+  document.getElementById('chatArea').appendChild(div);
+  document.getElementById('chatArea').scrollTop = document.getElementById('chatArea').scrollHeight;
 }
-
 function addAssistantMsg(text) {
-  const area = document.getElementById('chatArea');
   const div = document.createElement('div'); div.className = 'msg assistant';
   div.innerHTML = '<div class="content">' + marked.parse(text) + '</div>';
-  area.appendChild(div);
-  area.scrollTop = area.scrollHeight;
-  // Render mermaid blocks
+  document.getElementById('chatArea').appendChild(div);
+  document.getElementById('chatArea').scrollTop = document.getElementById('chatArea').scrollHeight;
   setTimeout(() => {
     document.querySelectorAll('.msg.assistant .content pre code.language-mermaid').forEach(el => {
-      const pre = el.parentElement;
-      pre.classList.add('mermaid');
-      pre.textContent = el.textContent;
+      el.parentElement.classList.add('mermaid');
+      el.parentElement.textContent = el.textContent;
     });
-    mermaid.run({ querySelector: '.mermaid' });
+    mermaid.run({ querySelector: '.mermaid' }).catch(() => {});
   }, 100);
 }
-
 function addSystemMsg(text) {
-  const area = document.getElementById('chatArea');
   const div = document.createElement('div'); div.className = 'msg assistant';
-  div.innerHTML = '<div class="content" style="border-color: var(--green); border-left: 3px solid var(--green);">' + marked.parse(text) + '</div>';
-  area.appendChild(div); area.scrollTop = area.scrollHeight;
+  div.innerHTML = '<div class="content" style="border-left:3px solid var(--green)">' + marked.parse(text) + '</div>';
+  document.getElementById('chatArea').appendChild(div);
+  document.getElementById('chatArea').scrollTop = document.getElementById('chatArea').scrollHeight;
 }
-
 function addErrorMsg(text) {
-  const area = document.getElementById('chatArea');
   const div = document.createElement('div'); div.className = 'msg assistant';
-  div.innerHTML = '<div class="content" style="border-color: var(--red); color: var(--red);">' + escHtml(text) + '</div>';
-  area.appendChild(div); area.scrollTop = area.scrollHeight;
+  div.innerHTML = '<div class="content" style="border-left:3px solid var(--red);color:var(--red)">' + escHtml(text) + '</div>';
+  document.getElementById('chatArea').appendChild(div);
+  document.getElementById('chatArea').scrollTop = document.getElementById('chatArea').scrollHeight;
 }
-
 function addTraceItem(step) {
   const area = document.getElementById('traceArea');
   if (area.querySelector('.empty-state')) area.innerHTML = '';
   const div = document.createElement('div');
   div.className = 'trace-item ' + step.step_type;
-  let html = '<div class="trace-name">' + (step.step_type === 'tool_call' ? 'Action' : 'Observation');
-  if (step.tool_name) html += ': ' + step.tool_name;
-  html += '</div>';
-  if (step.tool_args) html += '<div class="trace-args">Args: ' + escJson(step.tool_args) + '</div>';
-  if (step.step_type === 'observation' && step.content) {
-    html += '<div class="trace-output">' + escHtml(step.content) + '</div>';
-  }
-  div.innerHTML = html;
-  area.appendChild(div); area.scrollTop = area.scrollHeight;
+  let h = '<div class="trace-name">' + (step.step_type === 'tool_call' ? 'Action' : 'Observation');
+  if (step.tool_name) h += ': ' + step.tool_name;
+  h += '</div>';
+  if (step.tool_args && Object.keys(step.tool_args).length > 0) h += '<div class="trace-args">Args: ' + escJson(step.tool_args) + '</div>';
+  if (step.step_type === 'observation' && step.content) h += '<div class="trace-output">' + escHtml(step.content) + '</div>';
+  div.innerHTML = h;
+  area.appendChild(div);
+  area.scrollTop = area.scrollHeight;
 }
-
 function clearChat() {
-  document.getElementById('chatArea').innerHTML = '<div class="empty-state">Analysis running... once complete, start chatting.</div>';
+  document.getElementById('chatArea').innerHTML = '<div class="empty-state">Analysis running... once complete, you can chat.</div>';
 }
 function clearTrace() {
   document.getElementById('traceArea').innerHTML = '<div class="empty-state" style="padding-top:20px;font-size:0.8rem;">Tool calls and observations will appear here.</div>';
 }
 function setStatus(text, cls) {
   const el = document.getElementById('analysisStatus');
-  el.textContent = text; el.className = 'status ' + cls;
+  el.textContent = text; el.className = 'status ' + (cls || '');
 }
 function enableChat(on) {
   document.getElementById('chatInput').disabled = !on;
@@ -314,22 +311,18 @@ function enableChat(on) {
 }
 function disableAnalyze(on) { document.getElementById('btnAnalyze').disabled = on; }
 function resetAll() {
-  state = { taskId: null, conversationId: null, repoUrl: null, analysisDone: false };
+  Object.assign(state, { taskId: null, conversationId: null, analysisDone: false });
   document.getElementById('convIdDisplay').textContent = '';
   document.getElementById('btnNewConv').style.display = 'none';
   document.getElementById('analysisSummary').innerHTML = '';
-  document.getElementById('analysisStatus').textContent = 'Ready';
-  document.getElementById('analysisStatus').className = 'status';
+  setStatus('Enter a GitHub URL and click Analyze', '');
   disableAnalyze(false); enableChat(false);
   clearChat(); clearTrace();
 }
 function sleep(ms) { return new Promise(r => setTimeout(r, ms)); }
-function escHtml(s) {
-  const d = document.createElement('div'); d.textContent = s; return d.innerHTML;
-}
+function escHtml(s) { const d = document.createElement('div'); d.textContent = s; return d.innerHTML; }
 function escJson(obj) { return escHtml(JSON.stringify(obj, null, 2)); }
 
-// Enter to send, Shift+Enter for newline
 document.getElementById('chatInput').addEventListener('keydown', function(e) {
   if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); sendMessage(); }
 });
