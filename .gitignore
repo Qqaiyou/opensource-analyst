@@ -11,3 +11,20 @@ wheels/
 
 # Environment variables
 .env
+
+# IDE / Editor
+.vscode/
+.idea/
+
+# Claude
+.claude/agents/
+.claude/settings.json
+.claude/skills/
+.cache/
+
+# Generated artifacts
+repo_info_output.json
+scripts/
+
+# Legacy dashboard
+docs/phase2-dashboard.html

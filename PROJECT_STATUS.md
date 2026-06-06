@@ -1,6 +1,6 @@
 # OpenSource Analyst - 项目进度跟踪
 
-> 最后更新：2026-06-06
+> 最后更新：2026-06-07
 > 当前阶段：Milestone 13 ✅ 已完成 | 全部 13 个里程碑完成
 
 ---
@@ -804,7 +804,7 @@ coordinator Round 6: all_done → END
 | Conversation API | `src/opensource_analyst/api/conversation.py` | 5 个端点（/start /{id}/message /{id}/stream /{id}/history DELETE） |
 | Session Store | `src/opensource_analyst/api/session.py` | ConversationSessionStore — 内存会话管理 + AnalysisResult 摘要压缩 |
 | Conversation Models | `src/opensource_analyst/models/conversation.py` | Pydantic 模型（请求/响应/ReasoningStep） |
-| Chat Frontend | `src/opensource_analyst/frontend/chat.html` | 三栏交互式聊天 UI（SSE 流式 + Mermaid 渲染 + 推理轨迹面板） |
+| Chat Frontend | `src/opensource_analyst/frontend/index.html` | 三栏交互式聊天 UI — 格式化分析报告卡片 + 竖向推理时间线 + Mermaid 渲染 + Markdown 对话 |
 | BaseAgent 增强 | `src/opensource_analyst/agents/base.py` | 新增 invoke_messages()、bind_tools()、llm 属性 |
 | main.py 更新 | `src/opensource_analyst/main.py` | 注册 conversation router + 挂载 frontend + 版本→0.2.0 |
 | graph/__init__.py 更新 | `src/opensource_analyst/graph/__init__.py` | 导出 conversation graph + ConversationState |
@@ -860,14 +860,23 @@ call_model → LLM (含 search_code + MCP tools) → AIMessage
 | GET | `/conversation/{id}/history` | 对话历史 |
 | DELETE | `/conversation/{id}` | 删除会话 |
 
-### 9.11.6 前端 (chat.html)
+### 9.11.6 前端 (index.html)
 
 - **访问**：`http://localhost:8000/chat`
-- **三栏布局**：左侧分析摘要 + 中间对话流 + 右侧推理轨迹
+- **三栏布局**：左侧分析报告 + 中间对话流 + 右侧推理轨迹
+- **分析报告格式化展示**（无裸露 JSON）：
+  - Overview：仓库名称、描述、用例标签、许可证标签
+  - Tech Stack：语言占比条形图、框架标签、依赖列表
+  - Architecture：架构模式徽章、可点击展开的模块卡片（Key files + Imports）
+  - Learning Path：垂直时间线（难度色标 + 预估时间）
+  - Interview：可点击展开的卡片（Topic + Answer hint + Related files）
+  - Mermaid 图：页面内联渲染流程图/依赖图/全景图
+  - Self-Reflection：SVG 圆形评分环 + 分类问题列表
+- **推理轨迹时间线**（无裸露文本）：
+  - 竖向时间线视觉流：Tool Call（▶ 橙色圆点）/ Observation（◈ 青色圆点）/ Thought（灰色圆点）
+  - 工具名称 + 参数 + 输出预览 + 时间戳
 - **流程**：输入 GitHub URL → 自动调 /analyze → 轮询状态 → 自动创建对话 → 开始聊天
-- **SSE 流式**：打字效果 + 工具调用实时展示
-- **Mermaid 渲染**：内联渲染 Mermaid 图
-- **Markdown 渲染**：marked.js 渲染 + 代码高亮
+- **Markdown 渲染**：marked.js 渲染 + 打字动画指示器
 
 ### 9.11.7 技术要点
 

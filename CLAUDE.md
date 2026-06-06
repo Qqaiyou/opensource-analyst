@@ -98,7 +98,7 @@ prompts/         — LLM prompt templates
   ├── conversation.py  — ReAct conversation system prompt (M13)
   └── chat.py          — RAG Q&A prompt template
 frontend/        — Static web UI (M13)
-  └── chat.html  — Interactive chat frontend (SSE + Mermaid + reasoning trace)
+  └── index.html — Interactive chat frontend (analysis report cards + reasoning timeline + SSE + Mermaid)
 vectorstore/     — ChromaDB wrapper and indexing logic (M4)
   └── chroma.py  — DashScopeEmbeddings + VectorStore (CRUD + count)
 models/          — Pydantic models (no raw dict returns)
@@ -214,6 +214,12 @@ coordinator 内部并行调度:
 ## Git History
 
 ```
+18c6f0c feat: 前端重写 — 格式化分析报告卡片 + 推理时间线可视化
+586a824 fix: add_messages reducer (Annotated) + 跳过失败回复防止 tool message 顺序错误
+ee251e1 fix: M13 — 日志级别 DEBUG + session 调试输出 + 前端重写
+c778d10 fix: 重写前端 chat UI — 分析报告显示 + 错误处理增强
+4c3d6a4 fix: ReactAgent.react() 添加消息数 + 工具数日志
+e4c5178 fix: send_message 添加历史消息日志 + 调试多轮对话
 ff676d4 feat: 完成 Milestone 13 — 交互式对话 (ReAct Agent + 前端)
 dc6beaf feat: 完成 Milestone 12 — Mermaid图/Interview Agent/Reflection Agent
 a240477 feat: 完成 Milestone 11 — MCP 集成能力层
