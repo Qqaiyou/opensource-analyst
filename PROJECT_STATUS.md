@@ -895,6 +895,9 @@ uv run uvicorn src.opensource_analyst.main:app --reload
 # 运行测试
 uv run pytest
 
+# 前端对话（分析完成后使用）
+# http://127.0.0.1:8000/chat
+
 # 添加新依赖
 uv add <package-name>
 ```
