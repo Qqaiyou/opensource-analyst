@@ -209,17 +209,21 @@ coordinator 内部并行调度:
 
 | Project | URL | Used In |
 |---------|-----|---------|
-| TinyDB | https://github.com/msiemens/tinydb | M2-M11 integration tests |
+| TinyDB | https://github.com/msiemens/tinydb | M2-M13 integration tests |
 
 ## Git History
 
 ```
-f8f41a0 fix: 修复 M5 遗留问题并更新项目状态 — 修复代理连接失败、统一导入路径
+ff676d4 feat: 完成 Milestone 13 — 交互式对话 (ReAct Agent + 前端)
+dc6beaf feat: 完成 Milestone 12 — Mermaid图/Interview Agent/Reflection Agent
+a240477 feat: 完成 Milestone 11 — MCP 集成能力层
+ecb4876 feat: 完成 Milestone 10 — Coordinator Agent
+f834a1b feat: 完成 Milestone 9 — Learning Agent
+4f21132 feat: 完成 Milestone 8 — Architecture Agent
+5a76611 feat: 完成 Milestone 7 — Dependency Agent
+3b58389 feat: 完成 Milestone 6 — LangGraph 工作流
 ed36db1 feat: 完成 Milestone 5 — FastAPI 接口完善
 35f7edc feat: 完成 Milestone 4 — Repository RAG
 b77202c feat: 完成 Milestone 3 — 单 Agent 分析
 aa6bcdf feat: 完成 Milestone 2 — GitHub 仓库读取
-1b90124 chore: 完成 Milestone 1 — 项目设计文档
-45539df chore: 初始化项目结构和依赖
-40e9325 init project
 ```
