@@ -1,7 +1,7 @@
 # OpenSource Analyst - 项目进度跟踪
 
-> 最后更新：2026-06-05
-> 当前阶段：Milestone 10 ✅ 已完成 | 下一阶段：Milestone 11
+> 最后更新：2026-06-06
+> 当前阶段：Milestone 11 ✅ 已完成 | 下一阶段：Milestone 12
 
 ---
 
@@ -30,7 +30,7 @@
 | M8 | Architecture Agent | ✅ 已完成 | 2026-06-04 | - |
 | M9 | Learning Agent | ✅ 已完成 | 2026-06-05 | - |
 | M10 | Coordinator Agent | ✅ 已完成 | 2026-06-05 | - |
-| M11 | MCP 集成 | ⏳ 待开始 | - | - |
+| M11 | MCP 集成 | ✅ 已完成 | 2026-06-06 | - |
 | M12 | 高级功能 | ⏳ 待开始 | - | - |
 
 ---
@@ -623,6 +623,96 @@ coordinator 内部并行调度:
 - **API 不变**：POST /analyze 请求/响应、AnalysisResult 数据结构完全不变
 - **日志可见**：`logging.basicConfig(level=INFO)` 让 Coordinator 调度信息在终端输出
 - **测试可见**：集成测试含 `print()` 输出 Round 1/2/3 的完整中间结果
+
+---
+
+## 九点九、Milestone 11 完成详情
+
+### 9.9.1 产出文件
+
+| 文件 | 路径 | 内容 |
+|------|------|------|
+| MCPServerConfig | `src/opensource_analyst/mcp/config.py` | 单个 MCP Server 的启动配置 Pydantic 模型 |
+| MCPToolInfo | `src/opensource_analyst/mcp/config.py` | MCP Tool 元信息模型（server_name, tool_name, description, input_schema） |
+| MCPToolResult | `src/opensource_analyst/mcp/config.py` | Tool 调用结果模型（content, is_error） |
+| MCPServerConnection | `src/opensource_analyst/mcp/client.py` | 单个 MCP Server 的 stdio transport 连接管理（connect/disconnect/list_tools/call_tool） |
+| MCPClientManager | `src/opensource_analyst/mcp/client.py` | 多 Server 管理器（connect_all/disconnect_all/list_all_tools/路由 call_tool） |
+| __init__.py 更新 | `src/opensource_analyst/mcp/__init__.py` | 导出 5 个公开 API |
+| 测试 | `tests/test_mcp.py` | 15 个测试（4 单元 + 11 集成） |
+
+### 9.9.2 测试结果
+
+```
+106/106 PASSED (全量)
+  M2-M10: 91 tests (全部通过，零回归)
+  M11:   15 tests (4 单元 + 11 集成)  ← 新增
+
+M11 测试明细:
+  单元测试 (4):
+    - Config 创建 + 默认值
+    - Config 序列化/反序列化
+    - enabled=False 标记
+    - MCPToolResult.is_error 标记
+
+  集成测试 — 连接 (6):
+    - connect → list_tools → 2 个工具
+    - call_tool("echo") → ECHO: hello
+    - call_tool("add", {3,4}) → 7
+    - 无效命令 → RuntimeError("启动失败")
+    - 未连接调用 → RuntimeError("未连接")
+    - 未知工具 → 容错处理
+
+  集成测试 — Manager (5):
+    - list_all_tools 跨 Server 聚合
+    - 启用/禁用混合 → 只连接启用的
+    - call_tool 路由到正确 Server
+    - 不存在的 Server → ValueError
+    - disconnect 后连接清理
+```
+
+### 9.9.3 架构设计
+
+```
+能力层 — mcp/
+├── config.py           ← 3 个 Pydantic 模型（MCPServerConfig / MCPToolInfo / MCPToolResult）
+└── client.py           ← MCPServerConnection + MCPClientManager（stdio transport 连接管理）
+
+调用流程:
+  MCPServerConnection(config)
+    ├─→ connect(): 启动子进程 + stdio_client + ClientSession + initialize 握手
+    ├─→ list_tools() → [MCPToolInfo, ...]
+    ├─→ call_tool(name, args) → MCPToolResult
+    └─→ disconnect(): 关闭 session + stdio context
+
+  MCPClientManager([configs])
+    ├─→ connect_all(): 逐一连接已启用的 Server（失败跳过不阻断）
+    ├─→ list_all_tools(): 聚合所有 Server 的工具
+    ├─→ call_tool(server_name, tool_name, args): 路由到对应 Server
+    └─→ disconnect_all(): 清理所有连接
+```
+
+### 9.9.4 核心架构决策
+
+- **stdio transport**：MCP Server 以子进程方式启动，通过 stdin/stdout JSON-RPC 通信。无需额外网络端口，完全本地化
+- **独立能力层**：不修改任何现有 Agent、Graph、API 代码，MCP 作为独立的能力层存在
+- **声明式配置**：MCPServerConfig 声明 Server 的启动方式（command + args + env），支持 enabled=False 选择性禁用
+- **Mock Server 测试**：用 Python 内建 MCP Server 做 Echo Mock，覆盖真实 stdio transport 的完整链路，避免依赖外部 npm 包
+
+### 9.9.5 容错设计
+
+| 机制 | 实现 |
+|------|------|
+| 连接失败跳过 | Manager.connect_all() 中单个 Server 连接失败不阻断其他 Server |
+| 工具调用异常透传 | call_tool() 中异常通过 logger.exception 记录后重新抛出 |
+| 未连接防护 | list_tools() / call_tool() 检查 `_session is not None`，否则抛出 RuntimeError |
+| 资源清理 | disconnect() 依次关闭 session → stdio context，每步独立 try/except |
+
+### 9.9.6 技术要点
+
+- **MCP SDK v1.27.2**：使用官方 `mcp` Python 包，提供 `StdioServerParameters`、`stdio_client`、`ClientSession` 等底层 API
+- **async context manager**：MCPServerConnection 和 MCPClientManager 均支持 `async with`，确保连接生命周期自动管理
+- **stdio_client 生命周期**：保存 `_stdio_ctx` 引用，确保 `__aexit__` 在连接关闭时正确清理子进程
+- **现阶段为独立能力层**：真实 MCP Server（GitHub/Filesystem/Browser npm 包）待后续集成，当前只搭建了连接管理框架
 
 ---
 

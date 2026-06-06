@@ -74,6 +74,9 @@ github/          — GitHub API client
   ├── dependency_parser.py      — DependencyFileParser (M7: dep file detection + parsing)
   └── architecture_analyzer.py  — ArchitectureAnalyzer (M8: module grouping + AST import + entry file)
 mcp/             — MCP server integration (M11)
+	  ├── __init__.py   — Public API exports (MCPServerConfig / MCPServerConnection / MCPClientManager / ...)
+	  ├── config.py     — MCPServerConfig + MCPToolInfo + MCPToolResult (Pydantic models)
+	  └── client.py     — MCPServerConnection + MCPClientManager (stdio transport connection management)
 prompts/         — LLM prompt templates
   ├── overview.py      — Project overview + tech stack analysis prompt
   ├── dependency.py    — Dependency analysis prompt (M7)
@@ -110,19 +113,24 @@ Temperature: 0.3
 ### Agent Pipeline (current → future)
 
 ```
-[Current — M10]
+[Current — M11]
 POST /analyze → BackgroundTasks → LangGraph Workflow → AnalysisResult
   Pipeline: load_repo → index_code → retrieve_context → coordinator ⇄ END
   Coordinator: asyncio.gather(dependency, architecture, analyze) → learning
 GET /task/{id} → status polling → GET /task/{id}/result
 POST /chat → RAG 检索 + DeepSeek → 答案 + 代码引用来源
+MCP 能力层: MCPServerConnection + MCPClientManager → stdio transport 连接外部 MCP Server
 
-[Future — M10+]
+[Future — M11+]
 [Coordinator Agent]
   ├── RepoAgent        — GitHub data fetching
   ├── DependencyAgent  — tech stack / dependency analysis ✅ (M7)
   ├── ArchitectureAgent — project structure & module analysis ✅ (M8)
   └── LearningAgent    — learning path & interview questions ✅ (M9)
+[能力层]
+  ├── GitHub MCP       — Issue/PR/Release/Commit/Search
+  ├── Filesystem MCP   — 本地文件读写
+  └── Browser MCP      — 网页搜索/抓取
 ```
 
 ### LangGraph Workflow (Milestone 9 ✅)
@@ -188,7 +196,7 @@ coordinator 内部并行调度:
 
 | Project | URL | Used In |
 |---------|-----|---------|
-| TinyDB | https://github.com/msiemens/tinydb | M2-M5 integration tests |
+| TinyDB | https://github.com/msiemens/tinydb | M2-M11 integration tests |
 
 ## Git History
 

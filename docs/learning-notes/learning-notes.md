@@ -953,4 +953,108 @@ curl -X POST http://127.0.0.1:8000/analyze \
 
 ---
 
-*笔记结束。最后更新：2026-06-05*
+## Milestone 11 — MCP 集成
+
+### Step 1: 概念讲解
+
+**MCP (Model Context Protocol)** 是 Anthropic 提出的 AI 模型与外部工具的统一交互协议，类比"AI 工具的 USB-C 接口"。
+
+核心概念：
+- **Server**: 实现 MCP 协议的服务端程序，暴露一组工具（如 `@anthropic/mcp-server-github`）
+- **Client**: 连接 Server 的客户端，负责启动 Server 进程并通过 JSON-RPC 通信（本项目 `mcp/client.py`）
+- **Tool**: Server 暴露的单个功能（如 `search_issues`、`read_file`）
+- **Transport**: Client-Server 通信方式，本项目用 stdio（子进程 stdin/stdout 管道）
+
+三个 MCP Server：
+- **GitHub MCP**: 查 Issue/PR/Release/Commit/仓库搜索
+- **Filesystem MCP**: 读代码文件、写分析报告、遍历目录
+- **Browser MCP**: 网页搜索、抓取文档
+
+### Step 2: 该阶段在项目中的作用
+
+**为什么需要**：M2-M10 所有外部数据获取都是硬编码的（github/client.py 直调 API），Agent 无法自主探索外部信息。
+
+**解决什么问题**：
+1. 调用接口不统一 → MCP 统一 JSON-RPC + Tool Schema
+2. 能力扩展需改代码 → MCP 只需连接新 Server，Agent 自动发现工具
+3. Agent 无法自主探索 → MCP 让 Agent 能自主决定调用什么工具
+
+**输入输出**：
+- 输入：MCPServerConfig（command + args + env）
+- 输出：MCPToolInfo（工具列表）+ MCPToolResult（调用结果）
+
+**定位**：独立能力层，不修改现有 Agent/Graph/API，MCP 是增量增强而非替代。
+
+### Step 3: 设计实现方案
+
+```
+能力层 (mcp/)
+├── config.py           ← 3 个 Pydantic 模型
+│   ├── MCPServerConfig  (name, command, args, env, enabled)
+│   ├── MCPToolInfo      (server_name, tool_name, description, input_schema)
+│   └── MCPToolResult    (server_name, tool_name, content, is_error)
+└── client.py           ← 2 个核心类
+    ├── MCPServerConnection  封装单个 Server 的 stdio transport
+    │   ├── connect()    启动子进程 + ClientSession + initialize 握手
+    │   ├── list_tools() 返回该 Server 的所有工具
+    │   ├── call_tool()  调用指定工具，返回 MCPToolResult
+    │   └── disconnect() 关闭 session + stdio context
+    └── MCPClientManager    管理多个 Server 连接
+        ├── connect_all()    逐一连接已启用的 Server（失败不阻断其他）
+        ├── list_all_tools() 聚合所有 Server 的工具
+        ├── call_tool()      路由到对应 Server
+        └── disconnect_all() 清理全部连接
+```
+
+**类设计**：两个类都支持 async context manager（`async with`），连接生命周期由调用方管理。
+
+**数据流**：
+```
+调用方 → MCPServerConnection.call_tool()
+  → JSON-RPC request → 子进程 stdin
+  → JSON-RPC response → 子进程 stdout
+  → MCPToolResult(content=[...], is_error=False)
+```
+
+### Step 4: 代码实现
+
+**产出文件**：
+- `src/opensource_analyst/mcp/config.py` (36 行)
+- `src/opensource_analyst/mcp/client.py` (188 行)
+- `src/opensource_analyst/mcp/__init__.py` (12 行，更新导出)
+- `tests/test_mcp.py` (247 行，15 个测试)
+
+**测试策略**：用 Python 内建 MCP Server 做 Mock Echo Server（提供 echo + add 两个假工具），覆盖真实 stdio transport 完整链路，无需依赖外部 npm 包。
+
+### Step 5: 验收标准
+
+**运行命令**：
+```bash
+uv run pytest tests/test_mcp.py -v         # M11 测试
+uv run pytest                              # 全量回归
+```
+
+**测试结果**：106/106 PASSED（15 M11 新增 + 91 已有零回归）
+
+**验收条件**：
+- MCPServerConfig 支持 JSON 序列化/反序列化
+- MCPServerConnection 能连接 Mock Echo Server，list_tools() 返回正确工具列表
+- call_tool("echo", {"msg": "hello"}) 返回 ECHO: hello
+- 无效命令启动失败抛 RuntimeError；未连接调用抛 RuntimeError
+- MCPClientManager 能管理多 Server，支持 enabled=False 跳过
+- call_tool 能正确路由到指定 Server
+- 新增依赖：mcp==1.27.2
+
+### 关键差异 — M11 在项目中的位置
+
+| 维度 | M10 及之前 | M11 |
+|------|-----------|-----|
+| 外部工具调用 | 硬编码 import github/client.py | MCP 协议统一 Tool Schema |
+| 能力扩展方式 | 写新 Python 模块 + 改 Agent | 连接新 MCP Server |
+| Agent 自主性 | 只能消费预准备的数据 | 可自主发现和调用工具 |
+| 外部依赖 | DeepSeek API + GitHub API | 额外需要 Node.js（运行 npx） |
+| 阶段性质 | 核心功能 | 实验性能力增强 |
+
+---
+
+*笔记结束。最后更新：2026-06-06*
